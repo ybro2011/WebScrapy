@@ -3,16 +3,9 @@ services:
     name: business-search
     env: python
     buildCommand: |
-      apt-get update && apt-get install -y wget gnupg2 && \
-      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list && \
-      apt-get update && \
-      apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
-        --no-install-recommends && \
-      rm -rf /var/lib/apt/lists/* && \
       pip install -r requirements.txt && \
-      playwright install-deps && \
-      playwright install chromium
+      playwright install chromium && \
+      playwright install-deps
     startCommand: gunicorn main:app
     envVars:
       - key: FLASK_ENV
@@ -21,4 +14,6 @@ services:
         generateValue: true
       - key: PYTHONUNBUFFERED
         value: "true"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/opt/render/.cache/ms-playwright"
     plan: free 
