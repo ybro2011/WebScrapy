@@ -106,10 +106,20 @@
                 <input type="text" class="form-control" id="industry" name="industry" required>
             </div>
             
-            <div class="mb-3">
-                <label for="radius" class="form-label">Search Radius (km)</label>
-                <input type="number" class="form-control" id="radius" name="radius" value="5" min="1" max="50" step="0.5">
-                <div class="form-text">The radius in kilometers to search around the selected location (1-50 km)</div>
+            <div class="form-group">
+                <label for="radius">Search Radius (km)</label>
+                <input type="number" id="radius" name="radius" value="5" min="1" max="50" step="0.5" class="form-control">
+                <small class="form-text text-muted">Radius in kilometers (1-50 km)</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="density">Search Density</label>
+                <select id="density" name="density" class="form-control">
+                    <option value="low">Low (3x3 grid)</option>
+                    <option value="medium" selected>Medium (5x5 grid)</option>
+                    <option value="high">High (7x7 grid)</option>
+                </select>
+                <small class="form-text text-muted">Higher density means more search points but slower results</small>
             </div>
             
             <div class="mb-3">

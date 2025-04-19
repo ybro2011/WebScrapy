@@ -20,19 +20,34 @@ app = Flask(__name__)
 
 # Constants for grid search
 EARTH_RADIUS = 6371  # Earth's radius in kilometers
-GRID_SIZE = 3  # 3x3 grid
 DEFAULT_GRID_RADIUS = 5  # Default 5km radius
 
 # Ensure the Documents directory exists
 DOCUMENTS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
 os.makedirs(DOCUMENTS_DIR, exist_ok=True)
 
-def create_search_grid(center_lat, center_lng, radius):
+def get_grid_size(density):
+    """
+    Get the grid size based on density setting.
+    Returns the number of points in one dimension of the grid.
+    """
+    density_map = {
+        'low': 3,    # 3x3 grid = 9 points
+        'medium': 5,  # 5x5 grid = 25 points
+        'high': 7     # 7x7 grid = 49 points
+    }
+    return density_map.get(density, 5)  # Default to medium if invalid
+
+def create_search_grid(center_lat, center_lng, radius, density='medium'):
     """
     Create a grid of search points around a center point.
     Returns a list of (lat, lng) tuples including the center point.
     """
     grid_points = []
+    
+    # Get grid size based on density
+    grid_size = get_grid_size(density)
+    half_size = (grid_size - 1) // 2
     
     # Calculate the distance between grid points (in radians)
     distance_radians = radius / EARTH_RADIUS
@@ -42,8 +57,8 @@ def create_search_grid(center_lat, center_lng, radius):
     center_lng_rad = math.radians(center_lng)
     
     # Create grid points
-    for i in range(-1, 2):  # -1, 0, 1 for 3x3 grid
-        for j in range(-1, 2):
+    for i in range(-half_size, half_size + 1):
+        for j in range(-half_size, half_size + 1):
             # Calculate new latitude
             new_lat_rad = math.asin(
                 math.sin(center_lat_rad) * math.cos(distance_radians) +
@@ -135,7 +150,7 @@ def save_to_excel(businesses, filename):
     ws = wb.active
     
     # Add headers
-    headers = ['Name', 'Address', 'Phone', 'Website', 'Rating', 'Reviews', 'Email']
+    headers = ['Name', 'Address', 'Phone', 'Website', 'Rating', 'Reviews']
     for col, header in enumerate(headers, 1):
         ws.cell(row=1, column=col, value=header)
     
@@ -147,7 +162,7 @@ def save_to_excel(businesses, filename):
         ws.cell(row=row, column=4, value=business['website'])
         ws.cell(row=row, column=5, value=business['rating'])
         ws.cell(row=row, column=6, value=business['reviews'])
-        ws.cell(row=row, column=7, value=business['email'])
+
     
     # Save file
     file_path = os.path.join(DOCUMENTS_DIR, filename)
@@ -165,10 +180,12 @@ def search():
         location_name = request.form['location']
         industry = request.form['industry']
         radius = float(request.form.get('radius', DEFAULT_GRID_RADIUS))
+        density = request.form.get('density', 'medium')
         
         def generate_updates():
             yield "Starting search...\n"
             yield f"Using search radius: {radius} km\n"
+            yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
             
             # Initialize Google Maps client
             gmaps = googlemaps.Client(key=api_key)
@@ -179,7 +196,7 @@ def search():
                 yield f"Found center coordinates: {center_location}\n"
                 
                 # Create search grid
-                grid_points = create_search_grid(center_location[0], center_location[1], radius)
+                grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
                 yield f"Created search grid with {len(grid_points)} points\n"
                 
             except Exception as e:
