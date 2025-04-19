@@ -99,6 +99,17 @@ def save_to_excel(businesses, filename):
     wb.save(filename)
     return filename
 
+def get_location_coordinates(gmaps, location_name):
+    try:
+        geocode_result = gmaps.geocode(location_name)
+        if not geocode_result:
+            raise ValueError(f"Could not find coordinates for location: {location_name}")
+        location = geocode_result[0]['geometry']['location']
+        return (location['lat'], location['lng'])
+    except Exception as e:
+        logger.error(f"Error geocoding location {location_name}: {e}")
+        raise
+
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
@@ -107,7 +118,7 @@ def index():
 def search():
     try:
         api_key = request.form['api_key']
-        location = request.form['location']
+        location_name = request.form['location']
         industry = request.form['industry']
         
         def generate_updates():
@@ -116,11 +127,15 @@ def search():
             # Initialize Google Maps client
             gmaps = googlemaps.Client(key=api_key)
             
-            # Convert location string to tuple
-            lat, lng = map(float, location.split(','))
-            location_tuple = (lat, lng)
+            yield f"Converting location '{location_name}' to coordinates...\n"
+            try:
+                location_tuple = get_location_coordinates(gmaps, location_name)
+                yield f"Found coordinates: {location_tuple}\n"
+            except Exception as e:
+                yield f"Error: {str(e)}\n"
+                return
             
-            yield f"Searching for {industry} businesses near {location}...\n"
+            yield f"Searching for {industry} businesses near {location_name}...\n"
             
             # Search for places
             places = search_places(gmaps, location_tuple, industry)
