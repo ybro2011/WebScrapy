@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, Response
 import googlemaps
 import openpyxl
 import time
@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 import json
 from dotenv import load_dotenv
 import logging
+from flask import stream_with_context
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,10 +44,22 @@ def fetch_emails_from_website(url):
     emails = set()
     with sync_playwright() as p:
         try:
+            browser_path = os.path.join(
+                os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''),
+                'chromium-1091',
+                'chrome-linux',
+                'chrome'
+            )
+            
+            if not os.path.exists(browser_path):
+                logger.error(f"Browser not found at path: {browser_path}")
+                logger.error(f"Available files in directory: {os.listdir(os.path.dirname(browser_path))}")
+                return "Browser not found"
+            
             browser = p.chromium.launch(
                 headless=True,
                 args=['--no-sandbox', '--disable-setuid-sandbox'],
-                executable_path=os.path.join(os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''), 'chromium-1091', 'chrome-linux', 'chrome')
+                executable_path=browser_path
             )
             page = browser.new_page()
             try:
@@ -66,6 +79,8 @@ def fetch_emails_from_website(url):
                 browser.close()
         except Exception as e:
             logger.error(f"Error launching browser: {e}")
+            logger.error(f"Browser path: {browser_path}")
+            logger.error(f"Environment: {os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
     return ', '.join(emails)
 
 def save_to_excel(businesses, filename):
@@ -95,48 +110,55 @@ def search():
         location = request.form['location']
         industry = request.form['industry']
         
-        # Initialize Google Maps client
-        gmaps = googlemaps.Client(key=api_key)
-        
-        # Convert location string to tuple
-        lat, lng = map(float, location.split(','))
-        location_tuple = (lat, lng)
-        
-        # Search for places
-        places = search_places(gmaps, location_tuple, industry)
-        
-        # Process each place
-        businesses = []
-        for place in places:
-            place_id = place['place_id']
-            details = get_place_details(gmaps, place_id)
-            website = details.get('website')
+        def generate_updates():
+            yield "Starting search...\n"
             
-            if website:
-                emails = fetch_emails_from_website(website)
-                details['email'] = emails
-            else:
-                details['email'] = ""
+            # Initialize Google Maps client
+            gmaps = googlemaps.Client(key=api_key)
+            
+            # Convert location string to tuple
+            lat, lng = map(float, location.split(','))
+            location_tuple = (lat, lng)
+            
+            yield f"Searching for {industry} businesses near {location}...\n"
+            
+            # Search for places
+            places = search_places(gmaps, location_tuple, industry)
+            yield f"Found {len(places)} places\n"
+            
+            # Process each place
+            businesses = []
+            for i, place in enumerate(places, 1):
+                place_id = place['place_id']
+                place_name = place.get('name', 'Unknown')
+                yield f"Processing {i}/{len(places)}: {place_name}...\n"
                 
-            businesses.append(details)
-        
-        # Save to Excel
-        filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
-        file_path = os.path.join(os.path.expanduser('~'), 'Documents', filename)
-        save_to_excel(businesses, file_path)
-        
-        # Return the file for download
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=filename
-        )
+                details = get_place_details(gmaps, place_id)
+                website = details.get('website')
+                
+                if website:
+                    yield f"Scraping emails from {website}...\n"
+                    emails = fetch_emails_from_website(website)
+                    details['email'] = emails
+                    if emails:
+                        yield f"Found emails: {emails}\n"
+                else:
+                    details['email'] = ""
+                    yield "No website found\n"
+                    
+                businesses.append(details)
+            
+            # Save to Excel
+            filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
+            file_path = os.path.join(os.path.expanduser('~'), 'Documents', filename)
+            save_to_excel(businesses, file_path)
+            yield f"Success! Results saved to {filename}\n"
+            
+        return Response(stream_with_context(generate_updates()), mimetype='text/plain')
         
     except Exception as e:
         logger.error(f"Error in search: {e}")
-        return render_template('index.html', 
-                             message=f"Error: {str(e)}",
-                             message_type="error")
+        return Response(f"Error: {str(e)}\n", mimetype='text/plain', status=500)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))

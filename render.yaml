@@ -4,8 +4,8 @@ services:
     env: python
     buildCommand: |
       pip install -r requirements.txt && \
-      playwright install chromium && \
-      playwright install-deps
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright playwright install chromium && \
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright playwright install-deps
     startCommand: gunicorn main:app
     envVars:
       - key: FLASK_ENV
