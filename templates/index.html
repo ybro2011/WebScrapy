@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -72,42 +73,156 @@
         .log-entry:last-child {
             border-bottom: none;
         }
+        #map {
+            height: 400px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .coordinates-display {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>Business Search</h1>
-    <form method="POST" action="/search" id="searchForm">
-        <div class="form-group">
-            <label for="api_key">Google Maps API Key:</label>
-            <input type="text" id="api_key" name="api_key" required>
+    <div class="container mt-5">
+        <h1 class="mb-4">Business Search</h1>
+        <form method="POST" action="/search" id="searchForm">
+            <div class="mb-3">
+                <label for="api_key" class="form-label">Google Maps API Key</label>
+                <input type="text" class="form-control" id="api_key" name="api_key" required>
+            </div>
+            
+            <div class="mb-3">
+                <label for="location" class="form-label">Location</label>
+                <input type="text" class="form-control" id="location" name="location" required>
+                <div class="form-text">Enter an address or click on the map to select coordinates</div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="industry" class="form-label">Industry</label>
+                <input type="text" class="form-control" id="industry" name="industry" required>
+            </div>
+            
+            <div class="mb-3">
+                <div id="map"></div>
+                <div class="coordinates-display">
+                    <strong>Selected Coordinates:</strong>
+                    <span id="coordinates">None selected</span>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" id="searchButton">Search</button>
+        </form>
+        
+        <div id="results" class="mt-4">
+            <div id="log-container"></div>
+            <div id="download-section" class="mt-3" style="display: none;">
+                <a href="#" id="download-link" class="btn btn-success">
+                    <i class="bi bi-download"></i> Download Results
+                </a>
+            </div>
         </div>
-        <div class="form-group">
-            <label for="location">Location:</label>
-            <input type="text" id="location" name="location" required placeholder="e.g., San Francisco, CA">
-        </div>
-        <div class="form-group">
-            <label for="industry">Industry:</label>
-            <input type="text" id="industry" name="industry" required placeholder="e.g., restaurant">
-        </div>
-        <button type="submit" id="searchButton">Search</button>
-    </form>
-    
-    <div id="log-container"></div>
-    
-    {% if message %}
-    <div class="message {{ message_type }}">
-        {{ message }}
     </div>
-    {% endif %}
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Add error handling for Google Maps API
+        window.gm_authFailure = function() {
+            alert('Google Maps failed to load. Please check your API key and ensure the Maps JavaScript API is enabled.');
+        };
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBwq9AdIU2xda6-D021-VhbAld__hb77Pg&callback=initMap" async defer></script>
+    <script>
+        let map;
+        let marker;
+        let geocoder;
+        
+        function initMap() {
+            try {
+                // Initialize map centered on a default location (e.g., New York)
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: { lat: 40.7128, lng: -74.0060 },
+                    zoom: 12
+                });
+                
+                geocoder = new google.maps.Geocoder();
+                
+                // Add click listener to the map
+                map.addListener('click', function(event) {
+                    const lat = event.latLng.lat();
+                    const lng = event.latLng.lng();
+                    
+                    // Update coordinates display
+                    document.getElementById('coordinates').textContent = `${lat}, ${lng}`;
+                    
+                    // Update location input with coordinates
+                    document.getElementById('location').value = `${lat}, ${lng}`;
+                    
+                    // Add or update marker
+                    if (marker) {
+                        marker.setPosition(event.latLng);
+                    } else {
+                        marker = new google.maps.Marker({
+                            position: event.latLng,
+                            map: map
+                        });
+                    }
+                    
+                    // Reverse geocode to get address
+                    geocoder.geocode({ location: event.latLng }, function(results, status) {
+                        if (status === 'OK' && results[0]) {
+                            document.getElementById('location').value = results[0].formatted_address;
+                        }
+                    });
+                });
+                
+                // Add listener for location input changes
+                document.getElementById('location').addEventListener('change', function() {
+                    const location = this.value;
+                    if (location) {
+                        geocoder.geocode({ address: location }, function(results, status) {
+                            if (status === 'OK' && results[0]) {
+                                const location = results[0].geometry.location;
+                                map.setCenter(location);
+                                
+                                // Update coordinates display
+                                document.getElementById('coordinates').textContent = 
+                                    `${location.lat()}, ${location.lng()}`;
+                                
+                                // Add or update marker
+                                if (marker) {
+                                    marker.setPosition(location);
+                                } else {
+                                    marker = new google.maps.Marker({
+                                        position: location,
+                                        map: map
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error('Error initializing map:', error);
+                alert('Error initializing map. Please check the console for details.');
+            }
+        }
+
+        // Handle form submission and streaming response
         document.getElementById('searchForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const button = document.getElementById('searchButton');
             const logContainer = document.getElementById('log-container');
+            const downloadSection = document.getElementById('download-section');
+            const downloadLink = document.getElementById('download-link');
+            
             button.disabled = true;
             logContainer.innerHTML = '';
-
+            downloadSection.style.display = 'none';
+            
             const formData = new FormData(this);
             fetch('/search', {
                 method: 'POST',
@@ -116,25 +231,35 @@
             .then(response => {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-
+                
                 function readStream() {
                     reader.read().then(({done, value}) => {
                         if (done) {
                             button.disabled = false;
                             return;
                         }
-
+                        
                         const text = decoder.decode(value);
-                        const logEntry = document.createElement('div');
-                        logEntry.className = 'log-entry';
-                        logEntry.textContent = text.trim();
-                        logContainer.appendChild(logEntry);
+                        const lines = text.split('\n');
+                        
+                        lines.forEach(line => {
+                            if (line.startsWith('DOWNLOAD_URL:')) {
+                                const downloadUrl = line.replace('DOWNLOAD_URL:', '');
+                                downloadLink.href = downloadUrl;
+                                downloadSection.style.display = 'block';
+                            } else {
+                                const logEntry = document.createElement('div');
+                                logEntry.className = 'log-entry';
+                                logEntry.textContent = line.trim();
+                                logContainer.appendChild(logEntry);
+                            }
+                        });
+                        
                         logContainer.scrollTop = logContainer.scrollHeight;
-
                         readStream();
                     });
                 }
-
+                
                 readStream();
             })
             .catch(error => {
