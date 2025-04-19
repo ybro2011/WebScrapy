@@ -107,6 +107,12 @@
             </div>
             
             <div class="mb-3">
+                <label for="radius" class="form-label">Search Radius (km)</label>
+                <input type="number" class="form-control" id="radius" name="radius" value="5" min="1" max="50" step="0.5">
+                <div class="form-text">The radius in kilometers to search around the selected location (1-50 km)</div>
+            </div>
+            
+            <div class="mb-3">
                 <div id="map"></div>
                 <div class="coordinates-display">
                     <strong>Selected Coordinates:</strong>
@@ -139,6 +145,7 @@
         let map;
         let marker;
         let geocoder;
+        let circle;
         
         function initMap() {
             try {
@@ -171,6 +178,9 @@
                         });
                     }
                     
+                    // Update search radius circle
+                    updateRadiusCircle(event.latLng);
+                    
                     // Reverse geocode to get address
                     geocoder.geocode({ location: event.latLng }, function(results, status) {
                         if (status === 'OK' && results[0]) {
@@ -201,10 +211,37 @@
                                         map: map
                                     });
                                 }
+                                
+                                // Update search radius circle
+                                updateRadiusCircle(location);
                             }
                         });
                     }
                 });
+                
+                // Add listener for radius changes
+                document.getElementById('radius').addEventListener('change', function() {
+                    if (marker) {
+                        updateRadiusCircle(marker.getPosition());
+                    }
+                });
+                
+                function updateRadiusCircle(position) {
+                    const radius = parseFloat(document.getElementById('radius').value);
+                    if (circle) {
+                        circle.setMap(null);
+                    }
+                    circle = new google.maps.Circle({
+                        strokeColor: '#FF0000',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 2,
+                        fillColor: '#FF0000',
+                        fillOpacity: 0.35,
+                        map: map,
+                        center: position,
+                        radius: radius * 1000 // Convert km to meters
+                    });
+                }
             } catch (error) {
                 console.error('Error initializing map:', error);
                 alert('Error initializing map. Please check the console for details.');
