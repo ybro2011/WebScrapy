@@ -95,7 +95,7 @@ def get_location_coordinates(gmaps, location_name):
         logger.error(f"Error getting coordinates for {location_name}: {e}")
         raise
 
-def search_places(gmaps, location, query, radius=500):
+def search_places(gmaps, location, query, radius=1000):
     """
     Search for places near a location using Google Maps Places API.
     Returns a list of place results.
@@ -186,6 +186,7 @@ def search():
             yield "Starting search...\n"
             yield f"Using search radius: {radius} km\n"
             yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
+            yield "Using 1km radius for each individual search point\n"
             
             # Initialize Google Maps client
             gmaps = googlemaps.Client(key=api_key)
@@ -209,7 +210,7 @@ def search():
             all_places = []
             for i, (lat, lng) in enumerate(grid_points, 1):
                 yield f"Searching grid point {i}/{len(grid_points)} at ({lat}, {lng})...\n"
-                places = search_places(gmaps, (lat, lng), industry, radius=500)
+                places = search_places(gmaps, (lat, lng), industry)
                 all_places.extend(places)
                 yield f"Found {len(places)} places at this point\n"
             
