@@ -42,7 +42,7 @@ def get_place_details(gmaps, place_id):
 def fetch_emails_from_website(url):
     emails = set()
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         page = browser.new_page()
         try:
             page.goto(url, timeout=10000)
