@@ -13,7 +13,7 @@ services:
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /opt/render/.cache/ms-playwright
       - key: GUNICORN_CMD_ARGS
-        value: "--workers=1 --threads=1 --timeout=120"
+        value: --workers=1 --threads=1 --timeout=120
       - key: PORT
         value: 10000
     plan: free 

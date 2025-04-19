@@ -27,6 +27,10 @@ EARTH_RADIUS = 6371  # Earth's radius in kilometers
 GRID_SIZE = 3  # 3x3 grid
 GRID_RADIUS = 5  # 5km radius
 
+# Ensure the Documents directory exists
+DOCUMENTS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
+os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+
 def create_search_grid(center_lat, center_lng):
     """
     Create a grid of search points around a center point.
@@ -120,8 +124,9 @@ def save_to_excel(businesses, filename):
             b.get("formatted_address", ""),
             b.get("email", "")
         ])
-    wb.save(filename)
-    return filename
+    file_path = os.path.join(DOCUMENTS_DIR, filename)
+    wb.save(file_path)
+    return file_path
 
 def get_location_coordinates(gmaps, location_name):
     try:
@@ -216,8 +221,7 @@ def search():
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
-            file_path = os.path.join(os.path.expanduser('~'), 'Documents', filename)
-            save_to_excel(businesses, file_path)
+            file_path = save_to_excel(businesses, filename)
             yield f"Success! Results saved to {filename}\n"
             yield f"DOWNLOAD_URL:/download/{filename}\n"
             
@@ -230,7 +234,7 @@ def search():
 @app.route('/download/<filename>')
 def download_file(filename):
     try:
-        file_path = os.path.join(os.path.expanduser('~'), 'Documents', filename)
+        file_path = os.path.join(DOCUMENTS_DIR, filename)
         return send_file(
             file_path,
             as_attachment=True,
@@ -241,7 +245,7 @@ def download_file(filename):
         return Response(f"Error downloading file: {str(e)}", status=500)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=True)
 
 
