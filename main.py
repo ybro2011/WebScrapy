@@ -87,28 +87,41 @@ def fetch_emails_from_website(url):
     emails = set()
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-            )
             try:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                )
                 page = browser.new_page()
                 page.goto(url, timeout=10000)
+                
                 # Extract emails from mailto links
                 mailto_links = page.query_selector_all('a[href^="mailto:"]')
                 for link in mailto_links:
                     email = link.get_attribute('href').replace('mailto:', '').split('?')[0]
                     emails.add(email)
+                
                 # Extract emails from the text content
                 page_content = page.content()
                 found_emails = re.findall(r'[\w\.-]+@[\w\.-]+', page_content)
                 emails.update(found_emails)
+                
             except Exception as e:
                 logger.error(f"Error fetching {url}: {e}")
             finally:
-                browser.close()
+                try:
+                    browser.close()
+                except:
+                    pass
     except Exception as e:
         logger.error(f"Error launching browser: {e}")
+        # Try to install browsers if they're missing
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                p.chromium.install()
+        except Exception as install_error:
+            logger.error(f"Error installing browsers: {install_error}")
     return ', '.join(emails)
 
 def save_to_excel(businesses, filename):
