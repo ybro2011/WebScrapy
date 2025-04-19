@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <h1>Business Search</h1>
+    <form method="POST" action="/search">
+        <div class="form-group">
+            <label for="api_key">Google Maps API Key:</label>
+            <input type="text" id="api_key" name="api_key" required>
+        </div>
+        <div class="form-group">
+            <label for="location">Location (latitude,longitude):</label>
+            <input type="text" id="location" name="location" required placeholder="e.g., 37.7749,-122.4194">
+        </div>
+        <div class="form-group">
+            <label for="industry">Industry:</label>
+            <input type="text" id="industry" name="industry" required placeholder="e.g., restaurant">
+        </div>
+        <button type="submit">Search</button>
+    </form>
+    {% if message %}
+    <div class="message {{ message_type }}">
+        {{ message }}
+    </div>
+    {% endif %}
+</body>
+</html> 
