@@ -245,7 +245,7 @@ def search():
             # Search for places in each grid point
             all_places = []
             api_calls = 0
-            max_api_calls = 45  # Leave room for place details
+            max_api_calls = 40  # Reduced to leave more room for place details
             
             for i, (lat, lng) in enumerate(grid_points, 1):
                 if api_calls >= max_api_calls:
@@ -264,7 +264,7 @@ def search():
                     continue
                 
                 # Add a small delay between searches to avoid rate limiting
-                time.sleep(1)
+                time.sleep(2)  # Increased delay to 2 seconds
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -294,7 +294,7 @@ def search():
                 gc.collect()
                 
                 # Add a small delay between API calls
-                time.sleep(1)
+                time.sleep(2)  # Increased delay to 2 seconds
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
