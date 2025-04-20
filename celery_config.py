@@ -1,13 +1,10 @@
 from celery import Celery
 import os
 
-# Get Redis connection string from environment
-redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-
-# Initialize Celery
+# Initialize Celery with SQLite
 celery = Celery('webscraper',
-                broker=redis_url,
-                backend=redis_url)
+                broker='sqla+sqlite:///celery.sqlite',
+                backend='db+sqlite:///celery.sqlite')
 
 # Celery configuration
 celery.conf.update(
@@ -26,9 +23,5 @@ celery.conf.update(
     broker_connection_timeout=30,
     broker_pool_limit=10,
     broker_heartbeat=10,
-    broker_use_ssl=False,
-    redis_socket_timeout=30,
-    redis_socket_connect_timeout=30,
-    redis_retry_on_timeout=True,
-    redis_max_connections=10
+    broker_use_ssl=False
 ) 

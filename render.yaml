@@ -12,19 +12,4 @@ services:
       - key: PYTHONDONTWRITEBYTECODE
         value: 1
       - key: PORT
-        value: 10000
-      - key: REDIS_URL
-        fromService:
-          name: redis
-          type: redis
-          property: connectionString
-
-  - type: redis
-    name: redis
-    plan: free
-    ipAllowList: []
-    envVars:
-      - key: REDIS_PASSWORD
-        generateValue: true
-      - key: REDIS_PORT
-        value: "6379" 
+        value: 10000 
