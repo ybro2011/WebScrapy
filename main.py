@@ -3,6 +3,7 @@ import math
 import re
 import gc
 import logging
+import time
 from datetime import datetime
 from flask import Flask, render_template, request, Response, stream_with_context, send_file
 import googlemaps
@@ -98,15 +99,41 @@ def get_location_coordinates(gmaps, location_name):
 def search_places(gmaps, location, query, radius=1000):
     """
     Search for places near a location using Google Maps Places API.
-    Returns a list of place results.
+    Returns a list of place results (up to 60 results per search).
     """
     try:
+        all_results = []
+        
+        # Initial search
         places_result = gmaps.places_nearby(
             location=location,
             radius=radius,
             keyword=query
         )
-        return places_result.get('results', [])
+        results = places_result.get('results', [])
+        all_results.extend(results)
+        
+        # Handle pagination (up to 2 more pages = 60 total results)
+        next_page_token = places_result.get('next_page_token')
+        while next_page_token and len(all_results) < 60:
+            # Wait for the token to become valid (Google requires a short delay)
+            time.sleep(2)
+            
+            # Get next page of results
+            places_result = gmaps.places_nearby(
+                page_token=next_page_token
+            )
+            results = places_result.get('results', [])
+            all_results.extend(results)
+            
+            # Get next page token if available
+            next_page_token = places_result.get('next_page_token')
+            
+            # Break if we've reached the maximum results
+            if len(all_results) >= 60:
+                break
+        
+        return all_results
     except Exception as e:
         logger.error(f"Error searching places: {e}")
         return []
@@ -187,6 +214,7 @@ def search():
             yield f"Using search radius: {radius} km\n"
             yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
             yield "Using 1km radius for each individual search point\n"
+            yield "Fetching up to 60 results per search point\n"
             
             # Initialize Google Maps client
             gmaps = googlemaps.Client(key=api_key)
