@@ -3,4 +3,5 @@ werkzeug>=2.3.7
 googlemaps==4.10.0
 openpyxl==3.1.2
 python-dotenv==1.0.0
-gunicorn==21.2.0 
+gunicorn==21.2.0
+gevent==24.2.1 
