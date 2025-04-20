@@ -331,7 +331,7 @@ def search():
                 yield f"Searching for {industry} businesses in the area...\n"
                 
                 # Search for places in each grid point
-                max_api_calls = 15  # Further reduced to leave more room for place details
+                max_api_calls = 10  # Further reduced to be more conservative
                 
                 for i in range(current_grid_index, len(grid_points)):
                     if api_calls >= max_api_calls:
@@ -360,7 +360,7 @@ def search():
                         }, checkpoint_file)
                         
                         # Add a longer delay between grid points
-                        time.sleep(15)  # Increased delay to 15 seconds
+                        time.sleep(20)  # Increased delay to 20 seconds
                         
                     except Exception as e:
                         logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
@@ -384,7 +384,7 @@ def search():
                 # Process each place
                 businesses = []
                 for i, place in enumerate(unique_places, 1):
-                    if api_calls >= 30:  # Reduced from 40 to 30 to be more conservative
+                    if api_calls >= 20:  # Further reduced to be more conservative
                         logger.warning("Reached API quota limit for place details")
                         yield "Warning: Reached API quota limit. Some place details may be missing.\n"
                         break
@@ -431,7 +431,7 @@ def search():
                     gc.collect()
                     
                     # Add a longer delay between API calls
-                    time.sleep(10)  # Increased delay to 10 seconds
+                    time.sleep(15)  # Increased delay to 15 seconds
                 
                 # Save to Excel
                 filename = f"{industry.replace(' ', '_')}_businesses.xlsx"

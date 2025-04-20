@@ -6,7 +6,7 @@ services:
       pip install -r requirements.txt
       python -m playwright install chromium
       python -m playwright install-deps
-    startCommand: gunicorn main:app --timeout 7200 --workers 1 --threads 1 --bind 0.0.0.0:$PORT --keep-alive 65 --max-requests 1000 --max-requests-jitter 50 --worker-class gevent --worker-connections 1000 --graceful-timeout 120 --preload
+    startCommand: gunicorn main:app --timeout 10800 --workers 1 --threads 1 --bind 0.0.0.0:$PORT --keep-alive 65 --max-requests 1000 --max-requests-jitter 50 --worker-class gevent --worker-connections 1000 --graceful-timeout 120 --preload --log-level debug
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
