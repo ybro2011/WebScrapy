@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 import os
 import math
 import re
@@ -23,6 +26,9 @@ app = Flask(__name__)
 # Constants for grid search
 EARTH_RADIUS = 6371  # Earth's radius in kilometers
 DEFAULT_GRID_RADIUS = 5  # Default 5km radius
+GRID_SIZE_LOW = 3
+GRID_SIZE_MEDIUM = 5
+GRID_SIZE_HIGH = 7
 
 # Ensure the Documents directory exists
 DOCUMENTS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
@@ -33,14 +39,14 @@ def get_grid_size(density):
     Get the grid size based on density setting.
     Returns the number of points in one dimension of the grid.
     """
-    density_map = {
-        'low': 3,    # 3x3 grid = 9 points
-        'medium': 5,  # 5x5 grid = 25 points
-        'high': 7     # 7x7 grid = 49 points
-    }
-    return density_map.get(density, 5)  # Default to medium if invalid
+    if density == 'low':
+        return GRID_SIZE_LOW
+    elif density == 'high':
+        return GRID_SIZE_HIGH
+    else:  # medium
+        return GRID_SIZE_MEDIUM
 
-def create_search_grid(center_lat, center_lng, radius, density='medium'):
+def create_search_grid(center_lat, center_lng, radius, density):
     """
     Create a grid of search points around a center point.
     Returns a list of (lat, lng) tuples including the center point.
@@ -58,9 +64,20 @@ def create_search_grid(center_lat, center_lng, radius, density='medium'):
     center_lat_rad = math.radians(center_lat)
     center_lng_rad = math.radians(center_lng)
     
+    # Calculate the distance between grid points in degrees
+    # Rough approximation: 1 degree ≈ 111 km
+    distance_degrees = (radius * 2) / (grid_size * 111)
+    
+    # Calculate the starting point (top-left of the grid)
+    start_lat = center_lat + (radius / 111)
+    start_lng = center_lng - (radius / 111)
+    
     # Create grid points
     for i in range(-half_size, half_size + 1):
         for j in range(-half_size, half_size + 1):
+            lat = start_lat - (i * distance_degrees)
+            lng = start_lng + (j * distance_degrees)
+            
             # Calculate new latitude
             new_lat_rad = math.asin(
                 math.sin(center_lat_rad) * math.cos(distance_radians) +
@@ -123,7 +140,7 @@ def search_places(gmaps, location, query, radius=5000):
             while next_page_token and len(all_results) < 60 and page_count < 3:
                 # Wait for the token to become valid (Google requires a short delay)
                 logger.info(f"Waiting for next page token (page {page_count + 1})")
-                time.sleep(3)  # Increased delay to 3 seconds
+                time.sleep(4)  # Increased delay to 4 seconds
                 
                 try:
                     # Get next page of results with timeout handling
@@ -300,7 +317,7 @@ def search():
             yield f"Searching for {industry} businesses in the area...\n"
             
             # Search for places in each grid point
-            max_api_calls = 35  # Reduced to leave more room for place details
+            max_api_calls = 30  # Further reduced to leave more room for place details
             
             for i in range(current_grid_index, len(grid_points)):
                 if api_calls >= max_api_calls:
@@ -332,7 +349,7 @@ def search():
                     continue
                 
                 # Add a small delay between searches to avoid rate limiting
-                time.sleep(3)  # Increased delay to 3 seconds
+                time.sleep(4)  # Increased delay to 4 seconds
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -378,7 +395,7 @@ def search():
                 gc.collect()
                 
                 # Add a small delay between API calls
-                time.sleep(3)  # Increased delay to 3 seconds
+                time.sleep(4)  # Increased delay to 4 seconds
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
