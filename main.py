@@ -9,6 +9,7 @@ from flask import Flask, render_template, request, Response, stream_with_context
 import googlemaps
 from openpyxl import Workbook
 from dotenv import load_dotenv
+import json
 
 # Load environment variables
 load_dotenv()
@@ -204,6 +205,32 @@ def save_to_excel(businesses, filename):
     wb.save(file_path)
     return file_path
 
+def save_checkpoint(data, filename):
+    """Save checkpoint data to a file"""
+    try:
+        with open(filename, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.error(f"Error saving checkpoint: {e}")
+
+def load_checkpoint(filename):
+    """Load checkpoint data from a file"""
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading checkpoint: {e}")
+    return None
+
+def cleanup_checkpoint(filename):
+    """Remove checkpoint file after successful completion"""
+    try:
+        if os.path.exists(filename):
+            os.remove(filename)
+    except Exception as e:
+        logger.error(f"Error cleaning up checkpoint: {e}")
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -217,8 +244,29 @@ def search():
         radius = float(request.form.get('radius', DEFAULT_GRID_RADIUS))
         density = request.form.get('density', 'medium')
         
+        # Create a unique checkpoint filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        checkpoint_file = f"checkpoint_{industry}_{timestamp}.json"
+        
         def generate_updates():
-            yield "Starting search...\n"
+            # Try to load checkpoint
+            checkpoint = load_checkpoint(checkpoint_file)
+            if checkpoint:
+                yield "Resuming from previous checkpoint...\n"
+                all_places = checkpoint.get('all_places', [])
+                processed_places = checkpoint.get('processed_places', [])
+                api_calls = checkpoint.get('api_calls', 0)
+                grid_points = checkpoint.get('grid_points', [])
+                current_grid_index = checkpoint.get('current_grid_index', 0)
+                center_location = checkpoint.get('center_location')
+            else:
+                yield "Starting new search...\n"
+                all_places = []
+                processed_places = []
+                api_calls = 0
+                current_grid_index = 0
+                center_location = None
+            
             yield f"Using search radius: {radius} km\n"
             yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
             yield "Using 5km radius for each individual search point\n"
@@ -227,44 +275,55 @@ def search():
             # Initialize Google Maps client
             gmaps = googlemaps.Client(key=api_key)
             
-            yield f"Converting location '{location_name}' to coordinates...\n"
-            try:
-                center_location = get_location_coordinates(gmaps, location_name)
-                yield f"Found center coordinates: {center_location}\n"
-                
-                # Create search grid
-                grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
-                yield f"Created search grid with {len(grid_points)} points\n"
-                
-            except Exception as e:
-                yield f"Error: {str(e)}\n"
-                return
+            if not center_location:
+                yield f"Converting location '{location_name}' to coordinates...\n"
+                try:
+                    center_location = get_location_coordinates(gmaps, location_name)
+                    yield f"Found center coordinates: {center_location}\n"
+                    
+                    # Create search grid
+                    grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
+                    yield f"Created search grid with {len(grid_points)} points\n"
+                    
+                except Exception as e:
+                    yield f"Error: {str(e)}\n"
+                    return
             
             yield f"Searching for {industry} businesses in the area...\n"
             
             # Search for places in each grid point
-            all_places = []
-            api_calls = 0
             max_api_calls = 40  # Reduced to leave more room for place details
             
-            for i, (lat, lng) in enumerate(grid_points, 1):
+            for i in range(current_grid_index, len(grid_points)):
                 if api_calls >= max_api_calls:
                     yield "Warning: Reached API quota limit. Some areas may not be searched.\n"
                     break
                     
-                yield f"Searching grid point {i}/{len(grid_points)} at ({lat}, {lng})...\n"
+                lat, lng = grid_points[i]
+                yield f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})...\n"
                 try:
                     places = search_places(gmaps, (lat, lng), industry)
                     all_places.extend(places)
                     api_calls += 1
                     yield f"Found {len(places)} places at this point\n"
+                    
+                    # Save checkpoint after each grid point
+                    save_checkpoint({
+                        'all_places': all_places,
+                        'processed_places': processed_places,
+                        'api_calls': api_calls,
+                        'grid_points': grid_points,
+                        'current_grid_index': i + 1,
+                        'center_location': center_location
+                    }, checkpoint_file)
+                    
                 except Exception as e:
                     logger.error(f"Error searching grid point: {e}")
                     yield f"Error searching grid point: {str(e)}\n"
                     continue
                 
                 # Add a small delay between searches to avoid rate limiting
-                time.sleep(2)  # Increased delay to 2 seconds
+                time.sleep(2)
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -278,13 +337,28 @@ def search():
                     break
                     
                 place_id = place['place_id']
+                if place_id in processed_places:
+                    continue
+                    
                 place_name = place.get('name', 'Unknown')
                 yield f"Processing {i}/{len(unique_places)}: {place_name}...\n"
                 
                 try:
                     details = get_place_details(gmaps, place_id)
                     businesses.append(details)
+                    processed_places.append(place_id)
                     api_calls += 1
+                    
+                    # Save checkpoint after each place
+                    save_checkpoint({
+                        'all_places': all_places,
+                        'processed_places': processed_places,
+                        'api_calls': api_calls,
+                        'grid_points': grid_points,
+                        'current_grid_index': len(grid_points),
+                        'center_location': center_location
+                    }, checkpoint_file)
+                    
                 except Exception as e:
                     logger.error(f"Error getting place details: {e}")
                     yield f"Error getting details for {place_name}: {str(e)}\n"
@@ -294,11 +368,15 @@ def search():
                 gc.collect()
                 
                 # Add a small delay between API calls
-                time.sleep(2)  # Increased delay to 2 seconds
+                time.sleep(2)
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
             file_path = save_to_excel(businesses, filename)
+            
+            # Clean up checkpoint file after successful completion
+            cleanup_checkpoint(checkpoint_file)
+            
             yield f"Success! Results saved to {filename}\n"
             yield f"DOWNLOAD_URL:/download/{filename}\n"
             
