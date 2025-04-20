@@ -2,16 +2,13 @@ services:
   - type: web
     name: webscrapy
     env: python
-    buildCommand: |
-      pip install -r requirements.txt
-      python -m playwright install chromium
-      python -m playwright install-deps
-    startCommand: gunicorn main:app --timeout 10800 --workers 1 --threads 1 --bind 0.0.0.0:$PORT --keep-alive 65 --max-requests 1000 --max-requests-jitter 50 --worker-class gevent --worker-connections 1000 --graceful-timeout 120 --preload --log-level debug
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --timeout 21600 --workers 1 --threads 1 --worker-class gevent --bind 0.0.0.0:$PORT --keep-alive 120 --max-requests 1000 --log-level debug
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /opt/render/.cache/ms-playwright
-      - key: PORT
-        value: 10000
+      - key: PYTHONUNBUFFERED
+        value: 1
+      - key: PYTHONDONTWRITEBYTECODE
+        value: 1
     plan: free 

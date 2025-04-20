@@ -122,61 +122,48 @@ def get_location_coordinates(gmaps, location_name):
         raise
 
 def search_places(gmaps, location, query, radius=5000):
-    """
-    Search for places near a location using Google Maps Places API.
-    Returns a list of place results (up to 60 results per search).
-    """
+    """Search for places near a location using Google Maps Places API."""
     try:
+        logger.info(f"Starting search at location {location} with radius {radius}")
         all_results = []
         
-        # Initial search with timeout handling
-        try:
-            logger.info(f"Starting search at location {location} with radius {radius}")
-            places_result = gmaps.places_nearby(
-                location=location,
-                radius=radius,
-                keyword=query
-            )
-            results = places_result.get('results', [])
-            all_results.extend(results)
-            logger.info(f"Initial search found {len(results)} results")
+        # Initial search
+        places_result = gmaps.places_nearby(
+            location=location,
+            radius=radius,
+            keyword=query,
+            type='establishment'
+        )
+        
+        if 'results' in places_result:
+            all_results.extend(places_result['results'])
+            logger.info(f"Initial search found {len(places_result['results'])} results")
             
-            # Handle pagination (up to 2 more pages = 60 total results)
-            next_page_token = places_result.get('next_page_token')
-            page_count = 1
-            while next_page_token and len(all_results) < 60 and page_count < 3:
-                # Wait for the token to become valid (Google requires a short delay)
-                logger.info(f"Waiting for next page token (page {page_count + 1})")
-                time.sleep(10)  # Increased delay to 10 seconds
+            # Handle pagination with rate limiting
+            while 'next_page_token' in places_result and len(all_results) < 60:
+                logger.info(f"Waiting for next page token (page {len(all_results)//20 + 1})")
+                time.sleep(3)  # Required by Google API
                 
                 try:
-                    # Get next page of results with timeout handling
                     places_result = gmaps.places_nearby(
-                        page_token=next_page_token
+                        location=location,
+                        radius=radius,
+                        keyword=query,
+                        type='establishment',
+                        page_token=places_result['next_page_token']
                     )
-                    results = places_result.get('results', [])
-                    all_results.extend(results)
-                    logger.info(f"Page {page_count + 1} found {len(results)} results")
                     
-                    # Get next page token if available
-                    next_page_token = places_result.get('next_page_token')
-                    page_count += 1
-                    
-                    # Break if we've reached the maximum results
-                    if len(all_results) >= 60:
-                        logger.info("Reached maximum results (60)")
-                        break
+                    if 'results' in places_result:
+                        all_results.extend(places_result['results'])
+                        logger.info(f"Page {len(all_results)//20 + 1} found {len(places_result['results'])} results")
+                        logger.info(f"Total results found: {len(all_results)}")
                 except Exception as e:
-                    logger.error(f"Error getting next page: {str(e)}", exc_info=True)
+                    logger.error(f"Error during pagination: {str(e)}")
                     break
-        except Exception as e:
-            logger.error(f"Error in initial search: {str(e)}", exc_info=True)
-            return []
         
-        logger.info(f"Total results found: {len(all_results)}")
         return all_results
     except Exception as e:
-        logger.error(f"Error searching places: {str(e)}", exc_info=True)
+        logger.error(f"Error in search_places: {str(e)}")
         return []
 
 def get_place_details(gmaps, place_id):
@@ -294,6 +281,7 @@ def search():
                     grid_points = checkpoint.get('grid_points', [])
                     current_grid_index = checkpoint.get('current_grid_index', 0)
                     center_location = checkpoint.get('center_location')
+                    last_api_call_time = checkpoint.get('last_api_call_time', time.time())
                 else:
                     logger.info("Starting new search")
                     all_places = []
@@ -301,6 +289,7 @@ def search():
                     api_calls = 0
                     current_grid_index = 0
                     center_location = None
+                    last_api_call_time = time.time()
                 
                 yield "Starting new search...\n"
                 yield f"Using search radius: {radius} km\n"
@@ -331,21 +320,25 @@ def search():
                 yield f"Searching for {industry} businesses in the area...\n"
                 
                 # Search for places in each grid point
-                max_api_calls = 10  # Further reduced to be more conservative
-                
                 for i in range(current_grid_index, len(grid_points)):
-                    if api_calls >= max_api_calls:
-                        logger.warning("Reached API quota limit for grid searches")
-                        yield "Warning: Reached API quota limit. Some areas may not be searched.\n"
-                        break
-                        
+                    current_time = time.time()
+                    time_since_last_call = current_time - last_api_call_time
+                    
+                    # Ensure we don't exceed 59 API calls per minute
+                    if time_since_last_call < 1.0:  # Less than 1 second since last call
+                        sleep_time = 1.0 - time_since_last_call
+                        logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
+                        time.sleep(sleep_time)
+                    
                     lat, lng = grid_points[i]
                     logger.info(f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})")
                     yield f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})...\n"
+                    
                     try:
                         places = search_places(gmaps, (lat, lng), industry)
                         all_places.extend(places)
                         api_calls += 1
+                        last_api_call_time = time.time()
                         logger.info(f"Found {len(places)} places at grid point {i+1}")
                         yield f"Found {len(places)} places at this point\n"
                         
@@ -356,11 +349,9 @@ def search():
                             'api_calls': api_calls,
                             'grid_points': grid_points,
                             'current_grid_index': i + 1,
-                            'center_location': center_location
+                            'center_location': center_location,
+                            'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
-                        
-                        # Add a longer delay between grid points
-                        time.sleep(20)  # Increased delay to 20 seconds
                         
                     except Exception as e:
                         logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
@@ -372,7 +363,8 @@ def search():
                             'api_calls': api_calls,
                             'grid_points': grid_points,
                             'current_grid_index': i,
-                            'center_location': center_location
+                            'center_location': center_location,
+                            'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         continue
                 
@@ -384,11 +376,15 @@ def search():
                 # Process each place
                 businesses = []
                 for i, place in enumerate(unique_places, 1):
-                    if api_calls >= 20:  # Further reduced to be more conservative
-                        logger.warning("Reached API quota limit for place details")
-                        yield "Warning: Reached API quota limit. Some place details may be missing.\n"
-                        break
-                        
+                    current_time = time.time()
+                    time_since_last_call = current_time - last_api_call_time
+                    
+                    # Ensure we don't exceed 59 API calls per minute
+                    if time_since_last_call < 1.0:  # Less than 1 second since last call
+                        sleep_time = 1.0 - time_since_last_call
+                        logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
+                        time.sleep(sleep_time)
+                    
                     place_id = place['place_id']
                     if place_id in processed_places:
                         continue
@@ -402,6 +398,7 @@ def search():
                         businesses.append(details)
                         processed_places.append(place_id)
                         api_calls += 1
+                        last_api_call_time = time.time()
                         
                         # Save checkpoint after each place
                         save_checkpoint({
@@ -410,7 +407,8 @@ def search():
                             'api_calls': api_calls,
                             'grid_points': grid_points,
                             'current_grid_index': len(grid_points),
-                            'center_location': center_location
+                            'center_location': center_location,
+                            'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         
                     except Exception as e:
@@ -423,15 +421,13 @@ def search():
                             'api_calls': api_calls,
                             'grid_points': grid_points,
                             'current_grid_index': len(grid_points),
-                            'center_location': center_location
+                            'center_location': center_location,
+                            'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         continue
                     
                     # Force garbage collection after each business
                     gc.collect()
-                    
-                    # Add a longer delay between API calls
-                    time.sleep(15)  # Increased delay to 15 seconds
                 
                 # Save to Excel
                 filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
