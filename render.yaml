@@ -6,10 +6,10 @@ services:
       pip install -r requirements.txt
       python -m playwright install chromium
       python -m playwright install-deps
-    startCommand: gunicorn main:app
+    startCommand: gunicorn main:app --timeout 300 --workers 2 --threads 2 --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.11.11
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /opt/render/.cache/ms-playwright
       - key: GUNICORN_CMD_ARGS

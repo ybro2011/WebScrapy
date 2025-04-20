@@ -104,34 +104,42 @@ def search_places(gmaps, location, query, radius=5000):
     try:
         all_results = []
         
-        # Initial search
-        places_result = gmaps.places_nearby(
-            location=location,
-            radius=radius,
-            keyword=query
-        )
-        results = places_result.get('results', [])
-        all_results.extend(results)
-        
-        # Handle pagination (up to 2 more pages = 60 total results)
-        next_page_token = places_result.get('next_page_token')
-        while next_page_token and len(all_results) < 60:
-            # Wait for the token to become valid (Google requires a short delay)
-            time.sleep(2)
-            
-            # Get next page of results
+        # Initial search with timeout handling
+        try:
             places_result = gmaps.places_nearby(
-                page_token=next_page_token
+                location=location,
+                radius=radius,
+                keyword=query
             )
             results = places_result.get('results', [])
             all_results.extend(results)
             
-            # Get next page token if available
+            # Handle pagination (up to 2 more pages = 60 total results)
             next_page_token = places_result.get('next_page_token')
-            
-            # Break if we've reached the maximum results
-            if len(all_results) >= 60:
-                break
+            while next_page_token and len(all_results) < 60:
+                # Wait for the token to become valid (Google requires a short delay)
+                time.sleep(2)
+                
+                try:
+                    # Get next page of results with timeout handling
+                    places_result = gmaps.places_nearby(
+                        page_token=next_page_token
+                    )
+                    results = places_result.get('results', [])
+                    all_results.extend(results)
+                    
+                    # Get next page token if available
+                    next_page_token = places_result.get('next_page_token')
+                    
+                    # Break if we've reached the maximum results
+                    if len(all_results) >= 60:
+                        break
+                except Exception as e:
+                    logger.error(f"Error getting next page: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"Error in initial search: {e}")
+            return []
         
         return all_results
     except Exception as e:
@@ -236,11 +244,27 @@ def search():
             
             # Search for places in each grid point
             all_places = []
+            api_calls = 0
+            max_api_calls = 45  # Leave room for place details
+            
             for i, (lat, lng) in enumerate(grid_points, 1):
+                if api_calls >= max_api_calls:
+                    yield "Warning: Reached API quota limit. Some areas may not be searched.\n"
+                    break
+                    
                 yield f"Searching grid point {i}/{len(grid_points)} at ({lat}, {lng})...\n"
-                places = search_places(gmaps, (lat, lng), industry)
-                all_places.extend(places)
-                yield f"Found {len(places)} places at this point\n"
+                try:
+                    places = search_places(gmaps, (lat, lng), industry)
+                    all_places.extend(places)
+                    api_calls += 1
+                    yield f"Found {len(places)} places at this point\n"
+                except Exception as e:
+                    logger.error(f"Error searching grid point: {e}")
+                    yield f"Error searching grid point: {str(e)}\n"
+                    continue
+                
+                # Add a small delay between searches to avoid rate limiting
+                time.sleep(1)
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -249,15 +273,28 @@ def search():
             # Process each place
             businesses = []
             for i, place in enumerate(unique_places, 1):
+                if api_calls >= 60:  # Google's daily quota
+                    yield "Warning: Reached API quota limit. Some place details may be missing.\n"
+                    break
+                    
                 place_id = place['place_id']
                 place_name = place.get('name', 'Unknown')
                 yield f"Processing {i}/{len(unique_places)}: {place_name}...\n"
                 
-                details = get_place_details(gmaps, place_id)
-                businesses.append(details)
+                try:
+                    details = get_place_details(gmaps, place_id)
+                    businesses.append(details)
+                    api_calls += 1
+                except Exception as e:
+                    logger.error(f"Error getting place details: {e}")
+                    yield f"Error getting details for {place_name}: {str(e)}\n"
+                    continue
                 
                 # Force garbage collection after each business
                 gc.collect()
+                
+                # Add a small delay between API calls
+                time.sleep(1)
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
