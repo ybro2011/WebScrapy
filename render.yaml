@@ -18,8 +18,23 @@ services:
           name: redis
           type: redis
           property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: redis
+          type: redis
+          property: connectionString
 
   - type: redis
     name: redis
     plan: free
-    ipAllowList: [] 
+    ipAllowList: []
+    envVars:
+      - key: REDIS_PASSWORD
+        generateValue: true
+      - key: REDIS_PORT
+        value: "6379" 

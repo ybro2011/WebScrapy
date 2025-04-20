@@ -3,8 +3,8 @@ import os
 
 # Initialize Celery
 celery = Celery('webscraper',
-                broker=os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
-                backend=os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
+                broker=os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0'),
+                backend=os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0'))
 
 # Celery configuration
 celery.conf.update(
@@ -19,5 +19,9 @@ celery.conf.update(
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
     broker_connection_retry=True,
-    broker_connection_max_retries=10
+    broker_connection_max_retries=10,
+    broker_connection_timeout=30,
+    broker_pool_limit=10,
+    broker_heartbeat=10,
+    broker_use_ssl=False
 ) 
