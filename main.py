@@ -140,7 +140,7 @@ def search_places(gmaps, location, query, radius=5000):
             while next_page_token and len(all_results) < 60 and page_count < 3:
                 # Wait for the token to become valid (Google requires a short delay)
                 logger.info(f"Waiting for next page token (page {page_count + 1})")
-                time.sleep(4)  # Increased delay to 4 seconds
+                time.sleep(5)  # Increased delay to 5 seconds
                 
                 try:
                     # Get next page of results with timeout handling
@@ -317,7 +317,7 @@ def search():
             yield f"Searching for {industry} businesses in the area...\n"
             
             # Search for places in each grid point
-            max_api_calls = 30  # Further reduced to leave more room for place details
+            max_api_calls = 25  # Further reduced to leave more room for place details
             
             for i in range(current_grid_index, len(grid_points)):
                 if api_calls >= max_api_calls:
@@ -343,13 +343,22 @@ def search():
                         'center_location': center_location
                     }, checkpoint_file)
                     
+                    # Add a longer delay between grid points
+                    time.sleep(6)  # Increased delay to 6 seconds
+                    
                 except Exception as e:
                     logger.error(f"Error searching grid point: {e}")
                     yield f"Error searching grid point: {str(e)}\n"
+                    # Save checkpoint on error
+                    save_checkpoint({
+                        'all_places': all_places,
+                        'processed_places': processed_places,
+                        'api_calls': api_calls,
+                        'grid_points': grid_points,
+                        'current_grid_index': i,
+                        'center_location': center_location
+                    }, checkpoint_file)
                     continue
-                
-                # Add a small delay between searches to avoid rate limiting
-                time.sleep(4)  # Increased delay to 4 seconds
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -358,7 +367,7 @@ def search():
             # Process each place
             businesses = []
             for i, place in enumerate(unique_places, 1):
-                if api_calls >= 60:  # Google's daily quota
+                if api_calls >= 50:  # Reduced from 60 to 50 to be more conservative
                     yield "Warning: Reached API quota limit. Some place details may be missing.\n"
                     break
                     
@@ -389,13 +398,22 @@ def search():
                 except Exception as e:
                     logger.error(f"Error getting place details: {e}")
                     yield f"Error getting details for {place_name}: {str(e)}\n"
+                    # Save checkpoint on error
+                    save_checkpoint({
+                        'all_places': all_places,
+                        'processed_places': processed_places,
+                        'api_calls': api_calls,
+                        'grid_points': grid_points,
+                        'current_grid_index': len(grid_points),
+                        'center_location': center_location
+                    }, checkpoint_file)
                     continue
                 
                 # Force garbage collection after each business
                 gc.collect()
                 
-                # Add a small delay between API calls
-                time.sleep(4)  # Increased delay to 4 seconds
+                # Add a longer delay between API calls
+                time.sleep(5)  # Increased delay to 5 seconds
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
