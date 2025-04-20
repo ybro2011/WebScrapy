@@ -107,6 +107,7 @@ def search_places(gmaps, location, query, radius=5000):
         
         # Initial search with timeout handling
         try:
+            logger.info(f"Starting search at location {location} with radius {radius}")
             places_result = gmaps.places_nearby(
                 location=location,
                 radius=radius,
@@ -114,12 +115,15 @@ def search_places(gmaps, location, query, radius=5000):
             )
             results = places_result.get('results', [])
             all_results.extend(results)
+            logger.info(f"Initial search found {len(results)} results")
             
             # Handle pagination (up to 2 more pages = 60 total results)
             next_page_token = places_result.get('next_page_token')
-            while next_page_token and len(all_results) < 60:
+            page_count = 1
+            while next_page_token and len(all_results) < 60 and page_count < 3:
                 # Wait for the token to become valid (Google requires a short delay)
-                time.sleep(2)
+                logger.info(f"Waiting for next page token (page {page_count + 1})")
+                time.sleep(3)  # Increased delay to 3 seconds
                 
                 try:
                     # Get next page of results with timeout handling
@@ -128,12 +132,15 @@ def search_places(gmaps, location, query, radius=5000):
                     )
                     results = places_result.get('results', [])
                     all_results.extend(results)
+                    logger.info(f"Page {page_count + 1} found {len(results)} results")
                     
                     # Get next page token if available
                     next_page_token = places_result.get('next_page_token')
+                    page_count += 1
                     
                     # Break if we've reached the maximum results
                     if len(all_results) >= 60:
+                        logger.info("Reached maximum results (60)")
                         break
                 except Exception as e:
                     logger.error(f"Error getting next page: {e}")
@@ -142,6 +149,7 @@ def search_places(gmaps, location, query, radius=5000):
             logger.error(f"Error in initial search: {e}")
             return []
         
+        logger.info(f"Total results found: {len(all_results)}")
         return all_results
     except Exception as e:
         logger.error(f"Error searching places: {e}")
@@ -292,7 +300,7 @@ def search():
             yield f"Searching for {industry} businesses in the area...\n"
             
             # Search for places in each grid point
-            max_api_calls = 40  # Reduced to leave more room for place details
+            max_api_calls = 35  # Reduced to leave more room for place details
             
             for i in range(current_grid_index, len(grid_points)):
                 if api_calls >= max_api_calls:
@@ -302,6 +310,7 @@ def search():
                 lat, lng = grid_points[i]
                 yield f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})...\n"
                 try:
+                    logger.info(f"Searching grid point {i+1} at ({lat}, {lng})")
                     places = search_places(gmaps, (lat, lng), industry)
                     all_places.extend(places)
                     api_calls += 1
@@ -323,7 +332,7 @@ def search():
                     continue
                 
                 # Add a small delay between searches to avoid rate limiting
-                time.sleep(2)
+                time.sleep(3)  # Increased delay to 3 seconds
             
             # Remove duplicates based on place_id
             unique_places = {place['place_id']: place for place in all_places}.values()
@@ -344,6 +353,7 @@ def search():
                 yield f"Processing {i}/{len(unique_places)}: {place_name}...\n"
                 
                 try:
+                    logger.info(f"Getting details for place: {place_name}")
                     details = get_place_details(gmaps, place_id)
                     businesses.append(details)
                     processed_places.append(place_id)
@@ -368,7 +378,7 @@ def search():
                 gc.collect()
                 
                 # Add a small delay between API calls
-                time.sleep(2)
+                time.sleep(3)  # Increased delay to 3 seconds
             
             # Save to Excel
             filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
