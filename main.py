@@ -18,7 +18,14 @@ import json
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -160,16 +167,16 @@ def search_places(gmaps, location, query, radius=5000):
                         logger.info("Reached maximum results (60)")
                         break
                 except Exception as e:
-                    logger.error(f"Error getting next page: {e}")
+                    logger.error(f"Error getting next page: {str(e)}", exc_info=True)
                     break
         except Exception as e:
-            logger.error(f"Error in initial search: {e}")
+            logger.error(f"Error in initial search: {str(e)}", exc_info=True)
             return []
         
         logger.info(f"Total results found: {len(all_results)}")
         return all_results
     except Exception as e:
-        logger.error(f"Error searching places: {e}")
+        logger.error(f"Error searching places: {str(e)}", exc_info=True)
         return []
 
 def get_place_details(gmaps, place_id):
@@ -269,6 +276,8 @@ def search():
         radius = float(request.form.get('radius', DEFAULT_GRID_RADIUS))
         density = request.form.get('density', 'medium')
         
+        logger.info(f"Starting search with parameters: location={location_name}, industry={industry}, radius={radius}, density={density}")
+        
         # Create a unique checkpoint filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint_file = f"checkpoint_{industry}_{timestamp}.json"
@@ -278,7 +287,7 @@ def search():
                 # Try to load checkpoint
                 checkpoint = load_checkpoint(checkpoint_file)
                 if checkpoint:
-                    yield "Resuming from previous checkpoint...\n"
+                    logger.info("Resuming from checkpoint")
                     all_places = checkpoint.get('all_places', [])
                     processed_places = checkpoint.get('processed_places', [])
                     api_calls = checkpoint.get('api_calls', 0)
@@ -286,13 +295,14 @@ def search():
                     current_grid_index = checkpoint.get('current_grid_index', 0)
                     center_location = checkpoint.get('center_location')
                 else:
-                    yield "Starting new search...\n"
+                    logger.info("Starting new search")
                     all_places = []
                     processed_places = []
                     api_calls = 0
                     current_grid_index = 0
                     center_location = None
                 
+                yield "Starting new search...\n"
                 yield f"Using search radius: {radius} km\n"
                 yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
                 yield "Using 5km radius for each individual search point\n"
@@ -305,13 +315,16 @@ def search():
                     yield f"Converting location '{location_name}' to coordinates...\n"
                     try:
                         center_location = get_location_coordinates(gmaps, location_name)
+                        logger.info(f"Found center coordinates: {center_location}")
                         yield f"Found center coordinates: {center_location}\n"
                         
                         # Create search grid
                         grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
+                        logger.info(f"Created search grid with {len(grid_points)} points")
                         yield f"Created search grid with {len(grid_points)} points\n"
                         
                     except Exception as e:
+                        logger.error(f"Error getting coordinates: {str(e)}", exc_info=True)
                         yield f"Error: {str(e)}\n"
                         return
                 
@@ -322,16 +335,18 @@ def search():
                 
                 for i in range(current_grid_index, len(grid_points)):
                     if api_calls >= max_api_calls:
+                        logger.warning("Reached API quota limit for grid searches")
                         yield "Warning: Reached API quota limit. Some areas may not be searched.\n"
                         break
                         
                     lat, lng = grid_points[i]
+                    logger.info(f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})")
                     yield f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})...\n"
                     try:
-                        logger.info(f"Searching grid point {i+1} at ({lat}, {lng})")
                         places = search_places(gmaps, (lat, lng), industry)
                         all_places.extend(places)
                         api_calls += 1
+                        logger.info(f"Found {len(places)} places at grid point {i+1}")
                         yield f"Found {len(places)} places at this point\n"
                         
                         # Save checkpoint after each grid point
@@ -348,7 +363,7 @@ def search():
                         time.sleep(15)  # Increased delay to 15 seconds
                         
                     except Exception as e:
-                        logger.error(f"Error searching grid point: {e}")
+                        logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
                         yield f"Error searching grid point: {str(e)}\n"
                         # Save checkpoint on error
                         save_checkpoint({
@@ -363,12 +378,14 @@ def search():
                 
                 # Remove duplicates based on place_id
                 unique_places = {place['place_id']: place for place in all_places}.values()
+                logger.info(f"Total unique places found: {len(unique_places)}")
                 yield f"Total unique places found: {len(unique_places)}\n"
                 
                 # Process each place
                 businesses = []
                 for i, place in enumerate(unique_places, 1):
                     if api_calls >= 30:  # Reduced from 40 to 30 to be more conservative
+                        logger.warning("Reached API quota limit for place details")
                         yield "Warning: Reached API quota limit. Some place details may be missing.\n"
                         break
                         
@@ -377,10 +394,10 @@ def search():
                         continue
                         
                     place_name = place.get('name', 'Unknown')
+                    logger.info(f"Processing {i}/{len(unique_places)}: {place_name}")
                     yield f"Processing {i}/{len(unique_places)}: {place_name}...\n"
                     
                     try:
-                        logger.info(f"Getting details for place: {place_name}")
                         details = get_place_details(gmaps, place_id)
                         businesses.append(details)
                         processed_places.append(place_id)
@@ -397,7 +414,7 @@ def search():
                         }, checkpoint_file)
                         
                     except Exception as e:
-                        logger.error(f"Error getting place details: {e}")
+                        logger.error(f"Error getting details for {place_name}: {str(e)}", exc_info=True)
                         yield f"Error getting details for {place_name}: {str(e)}\n"
                         # Save checkpoint on error
                         save_checkpoint({
@@ -423,18 +440,19 @@ def search():
                 # Clean up checkpoint file after successful completion
                 cleanup_checkpoint(checkpoint_file)
                 
+                logger.info(f"Successfully completed search and saved results to {filename}")
                 yield f"Success! Results saved to {filename}\n"
                 yield f"DOWNLOAD_URL:/download/{filename}\n"
                 
             except Exception as e:
-                logger.error(f"Error in generate_updates: {e}")
+                logger.error(f"Error in generate_updates: {str(e)}", exc_info=True)
                 yield f"Error: {str(e)}\n"
                 return
             
         return Response(stream_with_context(generate_updates()), mimetype='text/plain')
         
     except Exception as e:
-        logger.error(f"Error in search: {e}")
+        logger.error(f"Error in search: {str(e)}", exc_info=True)
         return Response(f"Error: {str(e)}\n", mimetype='text/plain', status=500)
 
 @app.route('/download/<filename>')
