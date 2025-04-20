@@ -8,11 +8,12 @@ import gc
 import logging
 import time
 from datetime import datetime
-from flask import Flask, render_template, request, Response, stream_with_context, send_file
+from flask import Flask, render_template, request, Response, stream_with_context, send_file, jsonify
 import googlemaps
 from openpyxl import Workbook
 from dotenv import load_dotenv
 import json
+from openpyxl.styles import Font, PatternFill
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,10 @@ GRID_SIZE_HIGH = 7
 # Ensure the Documents directory exists
 DOCUMENTS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
 os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+
+# Global variables for task tracking
+active_tasks = {}
+task_results = {}
 
 def get_grid_size(density):
     """
@@ -263,16 +268,22 @@ def search():
         radius = float(request.form.get('radius', DEFAULT_GRID_RADIUS))
         density = request.form.get('density', 'medium')
         
-        logger.info(f"Starting search with parameters: location={location_name}, industry={industry}, radius={radius}, density={density}")
+        # Generate a unique task ID
+        task_id = f"{industry}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Create a unique checkpoint filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_file = f"checkpoint_{industry}_{timestamp}.json"
+        # Initialize the task
+        active_tasks[task_id] = {
+            'status': 'running',
+            'progress': 0,
+            'message': 'Starting search...'
+        }
         
         def generate_updates():
             try:
                 # Try to load checkpoint
+                checkpoint_file = f"checkpoint_{task_id}.json"
                 checkpoint = load_checkpoint(checkpoint_file)
+                
                 if checkpoint:
                     logger.info("Resuming from checkpoint")
                     all_places = checkpoint.get('all_places', [])
@@ -342,6 +353,11 @@ def search():
                         logger.info(f"Found {len(places)} places at grid point {i+1}")
                         yield f"Found {len(places)} places at this point\n"
                         
+                        # Update task progress
+                        progress = (i + 1) / len(grid_points) * 50  # 50% for grid search
+                        active_tasks[task_id]['progress'] = progress
+                        active_tasks[task_id]['message'] = f"Searching grid point {i+1}/{len(grid_points)}"
+                        
                         # Save checkpoint after each grid point
                         save_checkpoint({
                             'all_places': all_places,
@@ -401,10 +417,16 @@ def search():
                     
                     try:
                         details = get_place_details(gmaps, place_id)
-                        businesses.append(details)
+                        if details:
+                            businesses.append(details)
                         processed_places.append(place_id)
                         api_calls += 1
                         last_api_call_time = time.time()
+                        
+                        # Update task progress
+                        progress = 50 + (i / len(unique_places) * 50)  # 50-100% for place details
+                        active_tasks[task_id]['progress'] = progress
+                        active_tasks[task_id]['message'] = f"Processing place {i}/{len(unique_places)}"
                         
                         # Save checkpoint after each place
                         save_checkpoint({
@@ -445,12 +467,23 @@ def search():
                 # Clean up checkpoint file after successful completion
                 cleanup_checkpoint(checkpoint_file)
                 
+                # Update task status
+                active_tasks[task_id]['status'] = 'completed'
+                active_tasks[task_id]['progress'] = 100
+                active_tasks[task_id]['message'] = 'Search completed'
+                task_results[task_id] = {
+                    'filename': filename,
+                    'businesses': len(businesses)
+                }
+                
                 logger.info(f"Successfully completed search and saved results to {filename}")
                 yield f"Success! Results saved to {filename}\n"
                 yield f"DOWNLOAD_URL:/download/{filename}\n"
                 
             except Exception as e:
                 logger.error(f"Error in generate_updates: {str(e)}", exc_info=True)
+                active_tasks[task_id]['status'] = 'error'
+                active_tasks[task_id]['message'] = str(e)
                 yield f"Error: {str(e)}\n"
                 return
             
@@ -459,6 +492,24 @@ def search():
     except Exception as e:
         logger.error(f"Error in search: {str(e)}", exc_info=True)
         return Response(f"Error: {str(e)}\n", mimetype='text/plain', status=500)
+
+@app.route('/task/<task_id>')
+def get_task_status(task_id):
+    """Get the status of a search task."""
+    if task_id in active_tasks:
+        return jsonify(active_tasks[task_id])
+    elif task_id in task_results:
+        return jsonify({
+            'status': 'completed',
+            'progress': 100,
+            'message': 'Search completed',
+            'result': task_results[task_id]
+        })
+    else:
+        return jsonify({
+            'status': 'not_found',
+            'message': 'Task not found'
+        }), 404
 
 @app.route('/download/<filename>')
 def download_file(filename):
