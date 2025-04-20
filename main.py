@@ -139,10 +139,10 @@ def search_places(gmaps, location, query, radius=5000):
             all_results.extend(places_result['results'])
             logger.info(f"Initial search found {len(places_result['results'])} results")
             
-            # Handle pagination with rate limiting
+            # Handle pagination with more conservative rate limiting
             while 'next_page_token' in places_result and len(all_results) < 60:
                 logger.info(f"Waiting for next page token (page {len(all_results)//20 + 1})")
-                time.sleep(3)  # Required by Google API
+                time.sleep(5)  # Increased delay to 5 seconds
                 
                 try:
                     places_result = gmaps.places_nearby(
@@ -324,9 +324,9 @@ def search():
                     current_time = time.time()
                     time_since_last_call = current_time - last_api_call_time
                     
-                    # Ensure we don't exceed 59 API calls per minute
-                    if time_since_last_call < 1.0:  # Less than 1 second since last call
-                        sleep_time = 1.0 - time_since_last_call
+                    # Ensure we don't exceed 59 API calls per minute with more conservative delays
+                    if time_since_last_call < 2.0:  # Less than 2 seconds since last call
+                        sleep_time = 2.0 - time_since_last_call
                         logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
                         time.sleep(sleep_time)
                     
@@ -356,6 +356,9 @@ def search():
                         # Force garbage collection after each grid point
                         gc.collect()
                         
+                        # Add additional delay between grid points
+                        time.sleep(5)  # Added 5-second delay between grid points
+                        
                     except Exception as e:
                         logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
                         yield f"Error searching grid point: {str(e)}\n"
@@ -382,9 +385,9 @@ def search():
                     current_time = time.time()
                     time_since_last_call = current_time - last_api_call_time
                     
-                    # Ensure we don't exceed 59 API calls per minute
-                    if time_since_last_call < 1.0:  # Less than 1 second since last call
-                        sleep_time = 1.0 - time_since_last_call
+                    # Ensure we don't exceed 59 API calls per minute with more conservative delays
+                    if time_since_last_call < 2.0:  # Less than 2 seconds since last call
+                        sleep_time = 2.0 - time_since_last_call
                         logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
                         time.sleep(sleep_time)
                     
@@ -416,6 +419,9 @@ def search():
                         
                         # Force garbage collection after each business
                         gc.collect()
+                        
+                        # Add additional delay between place details
+                        time.sleep(5)  # Added 5-second delay between place details
                         
                     except Exception as e:
                         logger.error(f"Error getting details for {place_name}: {str(e)}", exc_info=True)
