@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from dotenv import load_dotenv
 import json
 from openpyxl.styles import Font, PatternFill
+from celery_config import celery
 
 # Load environment variables
 load_dotenv()
@@ -259,6 +260,111 @@ def cleanup_checkpoint(filename):
 def index():
     return render_template('index.html')
 
+@celery.task(bind=True, name='webscraper.search_task')
+def search_task(self, api_key, location_name, industry, radius, density):
+    """Celery task for performing the search."""
+    try:
+        # Initialize Google Maps client
+        gmaps = googlemaps.Client(key=api_key)
+        
+        # Get center coordinates
+        center_location = get_location_coordinates(gmaps, location_name)
+        
+        # Create search grid
+        grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
+        
+        all_places = []
+        processed_places = []
+        api_calls = 0
+        last_api_call_time = time.time()
+        
+        # Search for places in each grid point
+        for i, (lat, lng) in enumerate(grid_points):
+            current_time = time.time()
+            time_since_last_call = current_time - last_api_call_time
+            
+            if time_since_last_call < 2.0:
+                time.sleep(2.0 - time_since_last_call)
+            
+            try:
+                places = search_places(gmaps, (lat, lng), industry)
+                all_places.extend(places)
+                api_calls += 1
+                last_api_call_time = time.time()
+                
+                # Update task progress
+                self.update_state(state='PROGRESS',
+                                meta={'current': i + 1,
+                                      'total': len(grid_points),
+                                      'status': f'Searching grid point {i+1}/{len(grid_points)}'})
+                
+                # Force garbage collection
+                gc.collect()
+                
+                # Add delay between grid points
+                time.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Error searching grid point {i+1}: {str(e)}")
+                continue
+        
+        # Remove duplicates
+        unique_places = {place['place_id']: place for place in all_places}.values()
+        
+        # Process each place
+        businesses = []
+        for i, place in enumerate(unique_places, 1):
+            current_time = time.time()
+            time_since_last_call = current_time - last_api_call_time
+            
+            if time_since_last_call < 2.0:
+                time.sleep(2.0 - time_since_last_call)
+            
+            place_id = place['place_id']
+            if place_id in processed_places:
+                continue
+            
+            try:
+                details = get_place_details(gmaps, place_id)
+                if details:
+                    businesses.append(details)
+                processed_places.append(place_id)
+                api_calls += 1
+                last_api_call_time = time.time()
+                
+                # Update task progress
+                self.update_state(state='PROGRESS',
+                                meta={'current': len(grid_points) + i,
+                                      'total': len(grid_points) + len(unique_places),
+                                      'status': f'Processing place {i}/{len(unique_places)}'})
+                
+                # Force garbage collection
+                gc.collect()
+                
+                # Add delay between place details
+                time.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Error getting details for {place.get('name', 'Unknown')}: {str(e)}")
+                continue
+        
+        # Save to Excel
+        filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
+        file_path = save_to_excel(businesses, filename)
+        
+        return {
+            'status': 'completed',
+            'filename': filename,
+            'businesses': len(businesses)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in search_task: {str(e)}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
 @app.route('/search', methods=['POST'])
 def search():
     try:
@@ -268,255 +374,74 @@ def search():
         radius = float(request.form.get('radius', DEFAULT_GRID_RADIUS))
         density = request.form.get('density', 'medium')
         
-        # Generate a unique task ID
-        task_id = f"{industry}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Start Celery task
+        task = search_task.delay(api_key, location_name, industry, radius, density)
         
-        # Initialize the task
-        active_tasks[task_id] = {
-            'status': 'running',
-            'progress': 0,
-            'message': 'Starting search...'
-        }
-        
-        def generate_updates():
-            try:
-                # Try to load checkpoint
-                checkpoint_file = f"checkpoint_{task_id}.json"
-                checkpoint = load_checkpoint(checkpoint_file)
-                
-                if checkpoint:
-                    logger.info("Resuming from checkpoint")
-                    all_places = checkpoint.get('all_places', [])
-                    processed_places = checkpoint.get('processed_places', [])
-                    api_calls = checkpoint.get('api_calls', 0)
-                    grid_points = checkpoint.get('grid_points', [])
-                    current_grid_index = checkpoint.get('current_grid_index', 0)
-                    center_location = checkpoint.get('center_location')
-                    last_api_call_time = checkpoint.get('last_api_call_time', time.time())
-                else:
-                    logger.info("Starting new search")
-                    all_places = []
-                    processed_places = []
-                    api_calls = 0
-                    current_grid_index = 0
-                    center_location = None
-                    last_api_call_time = time.time()
-                
-                yield "Starting new search...\n"
-                yield f"Using search radius: {radius} km\n"
-                yield f"Using search density: {density} ({get_grid_size(density)}x{get_grid_size(density)} grid)\n"
-                yield "Using 5km radius for each individual search point\n"
-                yield "Fetching up to 60 results per search point\n"
-                
-                # Initialize Google Maps client
-                gmaps = googlemaps.Client(key=api_key)
-                
-                if not center_location:
-                    yield f"Converting location '{location_name}' to coordinates...\n"
-                    try:
-                        center_location = get_location_coordinates(gmaps, location_name)
-                        logger.info(f"Found center coordinates: {center_location}")
-                        yield f"Found center coordinates: {center_location}\n"
-                        
-                        # Create search grid
-                        grid_points = create_search_grid(center_location[0], center_location[1], radius, density)
-                        logger.info(f"Created search grid with {len(grid_points)} points")
-                        yield f"Created search grid with {len(grid_points)} points\n"
-                        
-                    except Exception as e:
-                        logger.error(f"Error getting coordinates: {str(e)}", exc_info=True)
-                        yield f"Error: {str(e)}\n"
-                        return
-                
-                yield f"Searching for {industry} businesses in the area...\n"
-                
-                # Search for places in each grid point
-                for i in range(current_grid_index, len(grid_points)):
-                    current_time = time.time()
-                    time_since_last_call = current_time - last_api_call_time
-                    
-                    # Ensure we don't exceed 59 API calls per minute with more conservative delays
-                    if time_since_last_call < 2.0:  # Less than 2 seconds since last call
-                        sleep_time = 2.0 - time_since_last_call
-                        logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
-                        time.sleep(sleep_time)
-                    
-                    lat, lng = grid_points[i]
-                    logger.info(f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})")
-                    yield f"Searching grid point {i+1}/{len(grid_points)} at ({lat}, {lng})...\n"
-                    
-                    try:
-                        places = search_places(gmaps, (lat, lng), industry)
-                        all_places.extend(places)
-                        api_calls += 1
-                        last_api_call_time = time.time()
-                        logger.info(f"Found {len(places)} places at grid point {i+1}")
-                        yield f"Found {len(places)} places at this point\n"
-                        
-                        # Update task progress
-                        progress = (i + 1) / len(grid_points) * 50  # 50% for grid search
-                        active_tasks[task_id]['progress'] = progress
-                        active_tasks[task_id]['message'] = f"Searching grid point {i+1}/{len(grid_points)}"
-                        
-                        # Save checkpoint after each grid point
-                        save_checkpoint({
-                            'all_places': all_places,
-                            'processed_places': processed_places,
-                            'api_calls': api_calls,
-                            'grid_points': grid_points,
-                            'current_grid_index': i + 1,
-                            'center_location': center_location,
-                            'last_api_call_time': last_api_call_time
-                        }, checkpoint_file)
-                        
-                        # Force garbage collection after each grid point
-                        gc.collect()
-                        
-                        # Add additional delay between grid points
-                        time.sleep(5)  # Added 5-second delay between grid points
-                        
-                    except Exception as e:
-                        logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
-                        yield f"Error searching grid point: {str(e)}\n"
-                        # Save checkpoint on error
-                        save_checkpoint({
-                            'all_places': all_places,
-                            'processed_places': processed_places,
-                            'api_calls': api_calls,
-                            'grid_points': grid_points,
-                            'current_grid_index': i,
-                            'center_location': center_location,
-                            'last_api_call_time': last_api_call_time
-                        }, checkpoint_file)
-                        continue
-                
-                # Remove duplicates based on place_id
-                unique_places = {place['place_id']: place for place in all_places}.values()
-                logger.info(f"Total unique places found: {len(unique_places)}")
-                yield f"Total unique places found: {len(unique_places)}\n"
-                
-                # Process each place
-                businesses = []
-                for i, place in enumerate(unique_places, 1):
-                    current_time = time.time()
-                    time_since_last_call = current_time - last_api_call_time
-                    
-                    # Ensure we don't exceed 59 API calls per minute with more conservative delays
-                    if time_since_last_call < 2.0:  # Less than 2 seconds since last call
-                        sleep_time = 2.0 - time_since_last_call
-                        logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds")
-                        time.sleep(sleep_time)
-                    
-                    place_id = place['place_id']
-                    if place_id in processed_places:
-                        continue
-                        
-                    place_name = place.get('name', 'Unknown')
-                    logger.info(f"Processing {i}/{len(unique_places)}: {place_name}")
-                    yield f"Processing {i}/{len(unique_places)}: {place_name}...\n"
-                    
-                    try:
-                        details = get_place_details(gmaps, place_id)
-                        if details:
-                            businesses.append(details)
-                        processed_places.append(place_id)
-                        api_calls += 1
-                        last_api_call_time = time.time()
-                        
-                        # Update task progress
-                        progress = 50 + (i / len(unique_places) * 50)  # 50-100% for place details
-                        active_tasks[task_id]['progress'] = progress
-                        active_tasks[task_id]['message'] = f"Processing place {i}/{len(unique_places)}"
-                        
-                        # Save checkpoint after each place
-                        save_checkpoint({
-                            'all_places': all_places,
-                            'processed_places': processed_places,
-                            'api_calls': api_calls,
-                            'grid_points': grid_points,
-                            'current_grid_index': len(grid_points),
-                            'center_location': center_location,
-                            'last_api_call_time': last_api_call_time
-                        }, checkpoint_file)
-                        
-                        # Force garbage collection after each business
-                        gc.collect()
-                        
-                        # Add additional delay between place details
-                        time.sleep(5)  # Added 5-second delay between place details
-                        
-                    except Exception as e:
-                        logger.error(f"Error getting details for {place_name}: {str(e)}", exc_info=True)
-                        yield f"Error getting details for {place_name}: {str(e)}\n"
-                        # Save checkpoint on error
-                        save_checkpoint({
-                            'all_places': all_places,
-                            'processed_places': processed_places,
-                            'api_calls': api_calls,
-                            'grid_points': grid_points,
-                            'current_grid_index': len(grid_points),
-                            'center_location': center_location,
-                            'last_api_call_time': last_api_call_time
-                        }, checkpoint_file)
-                        continue
-                
-                # Save to Excel
-                filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
-                file_path = save_to_excel(businesses, filename)
-                
-                # Clean up checkpoint file after successful completion
-                cleanup_checkpoint(checkpoint_file)
-                
-                # Update task status
-                active_tasks[task_id]['status'] = 'completed'
-                active_tasks[task_id]['progress'] = 100
-                active_tasks[task_id]['message'] = 'Search completed'
-                task_results[task_id] = {
-                    'filename': filename,
-                    'businesses': len(businesses)
-                }
-                
-                logger.info(f"Successfully completed search and saved results to {filename}")
-                yield f"Success! Results saved to {filename}\n"
-                yield f"DOWNLOAD_URL:/download/{filename}\n"
-                
-            except Exception as e:
-                logger.error(f"Error in generate_updates: {str(e)}", exc_info=True)
-                active_tasks[task_id]['status'] = 'error'
-                active_tasks[task_id]['message'] = str(e)
-                yield f"Error: {str(e)}\n"
-                return
-            
-        return Response(stream_with_context(generate_updates()), mimetype='text/plain')
+        return jsonify({
+            'task_id': task.id,
+            'status': 'started'
+        })
         
     except Exception as e:
-        logger.error(f"Error in search: {str(e)}", exc_info=True)
-        return Response(f"Error: {str(e)}\n", mimetype='text/plain', status=500)
+        logger.error(f"Error in search: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 @app.route('/task/<task_id>')
 def get_task_status(task_id):
     """Get the status of a search task."""
-    if task_id in active_tasks:
-        return jsonify(active_tasks[task_id])
-    elif task_id in task_results:
+    try:
+        task = search_task.AsyncResult(task_id)
+        
+        if task.state == 'PENDING':
+            response = {
+                'status': 'pending',
+                'progress': 0,
+                'message': 'Task is pending'
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'status': 'running',
+                'progress': (task.info.get('current', 0) / task.info.get('total', 1)) * 100,
+                'message': task.info.get('status', '')
+            }
+        elif task.state == 'SUCCESS':
+            response = {
+                'status': 'completed',
+                'progress': 100,
+                'message': 'Search completed',
+                'result': task.result
+            }
+        else:
+            response = {
+                'status': 'error',
+                'message': str(task.info)
+            }
+            
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error getting task status: {str(e)}")
         return jsonify({
-            'status': 'completed',
-            'progress': 100,
-            'message': 'Search completed',
-            'result': task_results[task_id]
-        })
-    else:
-        return jsonify({
-            'status': 'not_found',
-            'message': 'Task not found'
-        }), 404
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 @app.route('/download/<filename>')
 def download_file(filename):
-    file_path = os.path.join(DOCUMENTS_DIR, filename)
-    return send_file(file_path, as_attachment=True)
+    """Download the Excel file with search results."""
+    try:
+        return app.send_static_file(filename)
+    except Exception as e:
+        logger.error(f"Error downloading file {filename}: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': 'File not found'
+        }), 404
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
 

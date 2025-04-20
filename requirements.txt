@@ -1,7 +1,9 @@
-flask==2.3.3
-werkzeug>=2.3.7
-googlemaps==4.10.0
-openpyxl==3.1.2
-python-dotenv==1.0.0
+flask==3.0.2
 gunicorn==21.2.0
-gevent==24.2.1 
+gevent==24.2.1
+googlemaps==4.10.0
+pandas==2.2.1
+openpyxl==3.1.2
+celery==5.3.6
+redis==5.0.1
+python-dotenv==1.0.1 
