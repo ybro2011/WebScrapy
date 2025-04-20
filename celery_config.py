@@ -3,8 +3,8 @@ import os
 
 # Initialize Celery
 celery = Celery('webscraper',
-                broker=os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0'),
-                backend=os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0'))
+                broker=os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
+                backend=os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
 
 # Celery configuration
 celery.conf.update(
