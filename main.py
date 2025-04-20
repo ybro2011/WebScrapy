@@ -353,6 +353,9 @@ def search():
                             'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         
+                        # Force garbage collection after each grid point
+                        gc.collect()
+                        
                     except Exception as e:
                         logger.error(f"Error searching grid point {i+1}: {str(e)}", exc_info=True)
                         yield f"Error searching grid point: {str(e)}\n"
@@ -411,6 +414,9 @@ def search():
                             'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         
+                        # Force garbage collection after each business
+                        gc.collect()
+                        
                     except Exception as e:
                         logger.error(f"Error getting details for {place_name}: {str(e)}", exc_info=True)
                         yield f"Error getting details for {place_name}: {str(e)}\n"
@@ -425,9 +431,6 @@ def search():
                             'last_api_call_time': last_api_call_time
                         }, checkpoint_file)
                         continue
-                    
-                    # Force garbage collection after each business
-                    gc.collect()
                 
                 # Save to Excel
                 filename = f"{industry.replace(' ', '_')}_businesses.xlsx"
