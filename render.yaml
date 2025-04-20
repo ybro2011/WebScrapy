@@ -3,7 +3,7 @@ services:
     name: webscrapy
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app --timeout 43200 --workers 1 --threads 1 --worker-class gevent --bind 0.0.0.0:$PORT --keep-alive 120 --max-requests 1000 --log-level debug --preload
+    startCommand: gunicorn main:app --timeout 86400 --workers 1 --threads 1 --worker-class gevent --bind 0.0.0.0:$PORT --keep-alive 120 --max-requests 1000 --preload --log-level debug --graceful-timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
