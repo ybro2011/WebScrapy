@@ -13,8 +13,6 @@ services:
         value: 1
       - key: PORT
         value: 10000
-      - key: REDIS_URL
-        value: redis://redis:6379/0
       - key: CELERY_BROKER_URL
         value: redis://redis:6379/0
       - key: CELERY_RESULT_BACKEND
@@ -23,4 +21,9 @@ services:
   - type: redis
     name: redis
     plan: free
-    ipAllowList: [] 
+    ipAllowList: []
+    envVars:
+      - key: REDIS_PASSWORD
+        value: ${REDIS_PASSWORD}
+      - key: REDIS_PORT
+        value: "6379" 
