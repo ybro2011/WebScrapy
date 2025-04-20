@@ -1,14 +1,8 @@
 from celery import Celery
 import os
 
-# Get Redis connection details from environment
-redis_host = os.environ.get('REDIS_HOST', 'redis')
-redis_port = os.environ.get('REDIS_PORT', '6379')
-redis_password = os.environ.get('REDIS_PASSWORD', '')
-redis_db = os.environ.get('REDIS_DB', '0')
-
-# Construct Redis URL
-redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/{redis_db}"
+# Get Redis connection string from environment
+redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 
 # Initialize Celery
 celery = Celery('webscraper',

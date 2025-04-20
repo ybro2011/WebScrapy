@@ -13,23 +13,11 @@ services:
         value: 1
       - key: PORT
         value: 10000
-      - key: REDIS_HOST
+      - key: REDIS_URL
         fromService:
           name: redis
           type: redis
-          property: hostname
-      - key: REDIS_PORT
-        fromService:
-          name: redis
-          type: redis
-          property: port
-      - key: REDIS_PASSWORD
-        fromService:
-          name: redis
-          type: redis
-          property: password
-      - key: REDIS_DB
-        value: "0"
+          property: connectionString
 
   - type: redis
     name: redis
