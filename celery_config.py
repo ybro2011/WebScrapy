@@ -1,10 +1,21 @@
 from celery import Celery
 import os
 
-# Initialize Celery with SQLite
+# Create necessary directories
+os.makedirs('celery_data', exist_ok=True)
+
+# Initialize Celery with filesystem broker and backend
 celery = Celery('webscraper',
-                broker='sqla+sqlite:///celery.sqlite',
-                backend='db+sqlite:///celery.sqlite')
+                broker='filesystem://',
+                backend='filesystem://')
+
+# Configure filesystem broker and backend
+celery.conf.broker_transport_options = {
+    'data_folder_in': 'celery_data/queue',
+    'data_folder_out': 'celery_data/queue',
+    'data_folder_processed': 'celery_data/processed'
+}
+celery.conf.result_backend = 'file:///celery_data/results'
 
 # Celery configuration
 celery.conf.update(
