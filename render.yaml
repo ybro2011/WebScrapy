@@ -2,7 +2,10 @@ services:
   - type: web
     name: webscraper
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install -r requirements.txt
+      mkdir -p celery_data/queue celery_data/processed celery_data/results
+      chmod -R 777 celery_data
     startCommand: gunicorn --timeout 86400 --workers 1 --threads 1 --worker-class gevent --bind 0.0.0.0:$PORT --keep-alive 120 --max-requests 1000 --preload --log-level debug --graceful-timeout 120 --backlog 2048 --max-requests-jitter 50 main:app
     envVars:
       - key: PYTHON_VERSION
@@ -13,20 +16,6 @@ services:
         value: 1
       - key: PORT
         value: 10000
-      - key: REDIS_HOST
-        value: redis-service
-      - key: REDIS_PORT
-        value: 6379
-      - key: REDIS_PASSWORD
-        value: ""
-      - key: REDIS_DB
-        value: 0
-    serviceDiscovery:
-      - name: redis-service
-        type: redis
-        port: 6379
-        protocol: tcp
-        internal: true
   - type: redis
     name: redis-service
     plan: free

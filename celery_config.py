@@ -1,70 +1,42 @@
 from celery import Celery
 import os
 import logging
-import redis
-from redis.exceptions import ConnectionError, TimeoutError
-import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Redis configuration
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
-REDIS_DB = int(os.getenv('REDIS_DB', 0))
+# Get absolute path of current directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Log the Redis configuration
-logger.info(f"Redis Configuration:")
-logger.info(f"  Host: {REDIS_HOST}")
-logger.info(f"  Port: {REDIS_PORT}")
-logger.info(f"  DB: {REDIS_DB}")
-logger.info(f"  Password: {'set' if REDIS_PASSWORD else 'not set'}")
+# Create necessary directories with proper permissions
+CELERY_DATA_DIR = os.path.join(BASE_DIR, 'celery_data')
+QUEUE_DIR = os.path.join(CELERY_DATA_DIR, 'queue')
+PROCESSED_DIR = os.path.join(CELERY_DATA_DIR, 'processed')
+RESULTS_DIR = os.path.join(CELERY_DATA_DIR, 'results')
 
-def wait_for_redis():
-    """Wait for Redis to become available."""
-    max_retries = 30
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            # Try to connect to Redis directly
-            r = redis.Redis(
-                host=REDIS_HOST,
-                port=REDIS_PORT,
-                password=REDIS_PASSWORD,
-                db=REDIS_DB,
-                socket_timeout=1,
-                socket_connect_timeout=1,
-                retry_on_timeout=True,
-                health_check_interval=30,
-                decode_responses=True
-            )
-            
-            # Test the connection
-            r.ping()
-            logger.info(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
-            return True
-            
-        except (ConnectionError, TimeoutError) as e:
-            logger.warning(f"Redis connection attempt {attempt + 1}/{max_retries} failed: {str(e)}")
-            time.sleep(retry_delay)
-        except Exception as e:
-            logger.warning(f"Redis connection attempt {attempt + 1}/{max_retries} failed with error: {str(e)}")
-            time.sleep(retry_delay)
-    
-    logger.error("Failed to connect to Redis after maximum retries")
-    return False
+# Create directories with proper permissions
+for directory in [CELERY_DATA_DIR, QUEUE_DIR, PROCESSED_DIR, RESULTS_DIR]:
+    try:
+        os.makedirs(directory, exist_ok=True)
+        os.chmod(directory, 0o777)  # Set full permissions
+        logger.info(f"Created/verified directory: {directory}")
+    except Exception as e:
+        logger.error(f"Error creating directory {directory}: {str(e)}")
+        raise
 
-# Wait for Redis before configuring Celery
-if not wait_for_redis():
-    raise RuntimeError("Could not connect to Redis")
-
-# Initialize Celery with Redis broker and backend
+# Initialize Celery with filesystem broker and backend
 celery = Celery('webscraper',
-                broker=f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}',
-                backend=f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}')
+                broker='filesystem://',
+                backend='filesystem://')
+
+# Configure filesystem broker and backend with absolute paths
+celery.conf.broker_transport_options = {
+    'data_folder_in': QUEUE_DIR,
+    'data_folder_out': QUEUE_DIR,
+    'data_folder_processed': PROCESSED_DIR
+}
+celery.conf.result_backend = f'file://{RESULTS_DIR}'
 
 # Celery configuration
 celery.conf.update(
