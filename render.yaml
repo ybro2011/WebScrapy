@@ -4,7 +4,8 @@ services:
     env: python
     buildCommand: |
       pip install -r requirements.txt
-      mkdir -p celery_data/queue celery_data/processed celery_data/results
+      mkdir -p celery_data/queue celery_data/processed
+      chmod -R 777 celery_data
     startCommand: gunicorn --timeout 86400 --workers 1 --threads 1 --worker-class gevent --bind 0.0.0.0:$PORT --keep-alive 120 --max-requests 1000 --preload --log-level debug --graceful-timeout 120 --backlog 2048 --max-requests-jitter 50 main:app
     envVars:
       - key: PYTHON_VERSION

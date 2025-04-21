@@ -1,21 +1,40 @@
 from celery import Celery
 import os
+import logging
 
-# Create necessary directories
-os.makedirs('celery_data', exist_ok=True)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize Celery with filesystem broker and backend
+# Get absolute path of current directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Create necessary directories with proper permissions
+CELERY_DATA_DIR = os.path.join(BASE_DIR, 'celery_data')
+QUEUE_DIR = os.path.join(CELERY_DATA_DIR, 'queue')
+PROCESSED_DIR = os.path.join(CELERY_DATA_DIR, 'processed')
+
+# Create directories with proper permissions
+for directory in [CELERY_DATA_DIR, QUEUE_DIR, PROCESSED_DIR]:
+    try:
+        os.makedirs(directory, exist_ok=True)
+        os.chmod(directory, 0o777)  # Set full permissions
+        logger.info(f"Created/verified directory: {directory}")
+    except Exception as e:
+        logger.error(f"Error creating directory {directory}: {str(e)}")
+        raise
+
+# Initialize Celery with filesystem broker and SQLite backend
 celery = Celery('webscraper',
                 broker='filesystem://',
-                backend='filesystem://')
+                backend='db+sqlite:///celery_results.db')
 
-# Configure filesystem broker and backend
+# Configure filesystem broker with absolute paths
 celery.conf.broker_transport_options = {
-    'data_folder_in': 'celery_data/queue',
-    'data_folder_out': 'celery_data/queue',
-    'data_folder_processed': 'celery_data/processed'
+    'data_folder_in': QUEUE_DIR,
+    'data_folder_out': QUEUE_DIR,
+    'data_folder_processed': PROCESSED_DIR
 }
-celery.conf.result_backend = 'file:///celery_data/results'
 
 # Celery configuration
 celery.conf.update(
