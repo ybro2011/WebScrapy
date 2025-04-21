@@ -275,47 +275,46 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => {
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                
-                function readStream() {
-                    reader.read().then(({done, value}) => {
-                        if (done) {
-                            button.disabled = false;
-                            return;
-                        }
-                        
-                        const text = decoder.decode(value);
-                        const lines = text.split('\n');
-                        
-                        lines.forEach(line => {
-                            if (line.startsWith('DOWNLOAD_URL:')) {
-                                const downloadUrl = line.replace('DOWNLOAD_URL:', '');
-                                downloadLink.href = downloadUrl;
-                                downloadSection.style.display = 'block';
-                            } else {
-                                const logEntry = document.createElement('div');
-                                logEntry.className = 'log-entry';
-                                logEntry.textContent = line.trim();
-                                logContainer.appendChild(logEntry);
-                            }
-                        });
-                        
-                        logContainer.scrollTop = logContainer.scrollHeight;
-                        readStream();
-                    });
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    const taskId = data.task_id;
+                    logContainer.innerHTML = '<div class="log-entry">Search started. Task ID: ' + taskId + '</div>';
+                    
+                    // Start polling for task status
+                    const pollInterval = setInterval(() => {
+                        fetch('/task/' + taskId)
+                            .then(response => response.json())
+                            .then(statusData => {
+                                if (statusData.status === 'running') {
+                                    const progress = Math.round(statusData.progress);
+                                    logContainer.innerHTML = '<div class="log-entry">' + statusData.message + ' (' + progress + '%)</div>';
+                                } else if (statusData.status === 'completed') {
+                                    clearInterval(pollInterval);
+                                    logContainer.innerHTML = '<div class="log-entry">Search completed! Found ' + statusData.result.businesses + ' businesses.</div>';
+                                    downloadSection.style.display = 'block';
+                                    downloadLink.href = '/download/' + statusData.result.filename;
+                                    button.disabled = false;
+                                } else if (statusData.status === 'error') {
+                                    clearInterval(pollInterval);
+                                    logContainer.innerHTML = '<div class="log-entry error">Error: ' + statusData.message + '</div>';
+                                    button.disabled = false;
+                                }
+                            })
+                            .catch(error => {
+                                clearInterval(pollInterval);
+                                logContainer.innerHTML = '<div class="log-entry error">Error checking task status: ' + error + '</div>';
+                                button.disabled = false;
+                            });
+                    }, 2000); // Poll every 2 seconds
+                } else if (data.status === 'error') {
+                    logContainer.innerHTML = '<div class="log-entry error">Error: ' + data.error + '</div>';
+                    button.disabled = false;
                 }
-                
-                readStream();
             })
             .catch(error => {
-                console.error('Error:', error);
+                logContainer.innerHTML = '<div class="log-entry error">Error: ' + error + '</div>';
                 button.disabled = false;
-                const logEntry = document.createElement('div');
-                logEntry.className = 'log-entry error';
-                logEntry.textContent = 'Error: ' + error.message;
-                logContainer.appendChild(logEntry);
             });
         });
     </script>
