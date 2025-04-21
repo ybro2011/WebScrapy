@@ -21,7 +21,7 @@ os.makedirs(PROCESSED_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Initialize Celery app with filesystem broker and backend
-celery = Celery('tasks',
+celery_app = Celery('tasks',
              broker='filesystem://',
              backend='filesystem://',
              broker_transport_options={
@@ -34,7 +34,7 @@ celery = Celery('tasks',
              })
 
 # Celery configuration
-celery.conf.update(
+celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     broker_connection_timeout=30,
     task_time_limit=86400,  # 24 hours
@@ -50,4 +50,7 @@ celery.conf.update(
     enable_utc=True,
     worker_max_tasks_per_child=1,
     worker_max_memory_per_child=500000  # 500MB
-) 
+)
+
+# Export the Celery app
+celery = celery_app 
