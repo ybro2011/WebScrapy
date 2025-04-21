@@ -51,7 +51,9 @@ celery_app.conf.update(
     worker_max_tasks_per_child=1,
     worker_max_memory_per_child=500000,  # 500MB
     broker_transport='filesystem',
-    result_backend='filesystem'
+    result_backend='filesystem',
+    broker_url='filesystem://',
+    result_backend_url='filesystem://'
 )
 
 # Export the Celery app
