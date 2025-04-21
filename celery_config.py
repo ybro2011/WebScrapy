@@ -49,7 +49,9 @@ celery_app.conf.update(
     timezone='UTC',
     enable_utc=True,
     worker_max_tasks_per_child=1,
-    worker_max_memory_per_child=500000  # 500MB
+    worker_max_memory_per_child=500000,  # 500MB
+    broker_transport='filesystem',
+    result_backend='filesystem'
 )
 
 # Export the Celery app
