@@ -21,7 +21,7 @@ os.makedirs(PROCESSED_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Initialize Celery app with filesystem broker and backend
-app = Celery('tasks',
+celery = Celery('tasks',
              broker='filesystem://',
              backend='filesystem://',
              broker_transport_options={
@@ -34,7 +34,7 @@ app = Celery('tasks',
              })
 
 # Celery configuration
-app.conf.update(
+celery.conf.update(
     broker_connection_retry_on_startup=True,
     broker_connection_timeout=30,
     task_time_limit=86400,  # 24 hours
