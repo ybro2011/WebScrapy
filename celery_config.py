@@ -53,7 +53,15 @@ celery_app.conf.update(
     broker_transport='filesystem',
     result_backend='filesystem',
     broker_url='filesystem://',
-    result_backend_url='filesystem://'
+    result_backend_url='filesystem://',
+    broker_transport_options={
+        'data_folder_in': QUEUE_DIR,
+        'data_folder_out': QUEUE_DIR,
+        'data_folder_processed': PROCESSED_DIR
+    },
+    result_backend_options={
+        'data_folder': RESULTS_DIR
+    }
 )
 
 # Export the Celery app
